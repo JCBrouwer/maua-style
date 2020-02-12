@@ -111,11 +111,7 @@ def optimize(net, init_image, opt):
 def setup_optimizer(img, opt):
     if opt.optim.optimizer == "lbfgs":
         # print("Running optimization with L-BFGS")
-        optim_state = {
-            "max_iter": opt.param.num_iterations,
-            "tolerance_change": -1,
-            "tolerance_grad": -1,
-        }
+        optim_state = {"max_iter": opt.param.num_iterations, "tolerance_change": -1, "tolerance_grad": -1}
         if opt.optim.lbfgs_num_correction != 100:
             optim_state["history_size"] = opt.optim.lbfgs_num_correction
         optimizer = optim.LBFGS([img], **optim_state)

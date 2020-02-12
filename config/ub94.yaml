@@ -25,7 +25,7 @@ model:
   pooling: max
   content_layers: relu4_2
   style_layers: relu1_1,relu2_1,relu3_1,relu4_1,relu5_1
-  gpu: 0,1
+  gpu: 1
   backend: cudnn
   cudnn_autotune: True
   multidevice_strategy: 7

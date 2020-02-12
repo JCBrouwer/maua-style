@@ -38,7 +38,7 @@ def match_histogram(target_tensor, source_tensor, eps=1e-5):
         _, t, Ct = get_histogram(target_tensor, eps)
         mu_s, _, Cs = get_histogram(source_tensor, eps)
 
-        # Mode: PCA
+        # PCA
         eva_t, eve_t = th.symeig(Ct, eigenvectors=True, upper=True)
         Et = th.sqrt(th.diagflat(eva_t))
         Et[Et != Et] = 0  # Convert nan to 0
@@ -118,6 +118,7 @@ def get_flow_model(opt):
     else:
         from thoth.deepmatching import deepmatching
         from thoth.deepflow2 import deepflow2
+
         return lambda im1, im2: deepflow2(im1, im2, deepmatching(im1, im2), "-%s" % (opt.flow.model_type_cpu))
 
 
@@ -133,7 +134,8 @@ def img_img(opt):
 
     style_images_big = load.process_style_images(opt)
     content_image_big = match_histogram(load.preprocess(opt.input.content), style_images_big[0])
-    if opt.init != "content" and opt.init != "random":
+    content_size = np.array(content_image_big.size()[-2:])
+    if opt.input.init != "content" and opt.input.init != "random":
         init_image = load.preprocess(opt.input.init)
 
     for i, (current_size, num_iters) in enumerate(zip(*determine_scaling(opt.param))):
@@ -141,25 +143,23 @@ def img_img(opt):
 
         net = models.load_model(opt.model, opt.param)
 
-        content_scale = current_size / max(*content_image_big.size()[-2:])
+        content_scale = current_size / max(*content_size)
         net.set_content_targets(content_image_big, content_scale, opt)
-        net.set_style_targets(style_images_big, content_scale * content_image_big.size()[-2:], opt)
+        net.set_style_targets(style_images_big, content_scale * content_size, opt)
 
         # Initialize the image
         if opt.input.init == "random":
-            B, C, H, W = content_image.size()
+            B, C, H, W = 1, 3, content_scale * content_size
             init_image = th.randn(C, H, W).mul(0.001).unsqueeze(0)
         elif opt.input.init == "content":
-            init_image = content_frames[1].clone()
+            init_image = F.interpolate(
+                content_image_big.clone(), tuple(np.int64(content_scale * content_size)), mode="bilinear"
+            )
         else:
-            init_image = F.interpolate(init_image.clone(), content_image.size()[-2:], mode="bilinear")
-
-        # print(content_image.size())
-        # print(init_image.size() if init_image is not None else None)
-        # [print(img.size()) for img in style_images]
+            init_image = F.interpolate(init_image.clone(), tuple(np.int64(content_scale * content_size)), mode="bilinear")
 
         if current_size <= 1664:
-            opt.model.gpu = 0
+            opt.model.gpu = 1
             opt.model.multidevice = False
         else:
             opt.model.gpu = "0,1"
@@ -288,13 +288,6 @@ def vid_img(opt):
                     blend_init_image = (1 - opt.param.blend_weight) * blend_image + opt.param.blend_weight * init_image
                     warp_blend_init_image = F.grid_sample(blend_init_image, flow_map, padding_mode="border")
                     init_image = warp_blend_init_image
-
-                # disp = load.deprocess(init_image.clone())
-                # init_out = output_dir + "/init" + str(current_size) + "_" + name(this_frame) + ".png"
-                # disp.save(init_out)
-
-                # info(content_frames[1])
-                # info(init_image)
 
                 # TODO fix this (atm required) magical num_iter incantations
                 opt.param.num_iterations = num_iters // opt.param.passes_per_scale

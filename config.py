@@ -70,6 +70,7 @@ def parse_args():
     # Optimization options
     parser.add_argument("-model_file", type=str, default=argparse.SUPPRESS)  # , default='models/vgg19-d01eb7cb.pth')
     parser.add_argument("-content_weight", type=float, default=argparse.SUPPRESS)  # , default=5e0)
+    parser.add_argument("-temporal_weight", type=float, default=argparse.SUPPRESS)  # , default=5e0)
     parser.add_argument("-style_weight", type=float, default=argparse.SUPPRESS)  # , default=1e2)
     parser.add_argument("-normalize_weights", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("-tv_weight", type=float, default=argparse.SUPPRESS)  # , default=1e-3)
