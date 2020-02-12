@@ -1,0 +1,32 @@
+input:
+  content: examples/content.jpg
+  style: examples/style.jpg
+  output: pastiche.jpg
+  init: random
+  style_blend_weights: False
+  style_scale: 1.0
+  image_size: 256
+  original_colors: False
+  seed: -1
+model:
+  model_file: models/vgg19-d01eb7cb.pth
+  content_weight: 5
+  style_weight: 100
+  normalize_weights: False
+  tv_weight: .001
+  use_covariance: False
+  pooling: max
+  content_layers: relu4_2
+  style_layers: relu1_1,relu2_1,relu3_1,relu4_1,relu5_1
+  gpu: 0
+  backend: nn
+  cudnn_autotune: False
+  multidevice_strategy: 4,7,29
+  disable_check: False
+optim:
+  optimizer: lbfgs
+  num_iterations: 1000
+  learning_rate: 1
+  lbfgs_num_correction: 100
+  print_iter: 100
+  save_iter: 250
