@@ -340,7 +340,7 @@ def load_model(opt, param):
         tv_losses.append(tv_mod)
 
     # HACK abuse of Options class (which is a dict) to avoid error here when temporal_weight not in img/img config
-    if param.get("temporal_weight", 0) > 0:
+    if param.get('temporal_weight', 0) > 0:
         temporal_mod = ContentLoss(param.temporal_weight)
         net.add_module(str(len(net)), temporal_mod)
         temporal_losses.append(temporal_mod)

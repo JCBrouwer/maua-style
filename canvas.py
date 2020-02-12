@@ -156,7 +156,9 @@ def img_img(opt):
                 content_image_big.clone(), tuple(np.int64(content_scale * content_size)), mode="bilinear"
             )
         else:
-            init_image = F.interpolate(init_image.clone(), tuple(np.int64(content_scale * content_size)), mode="bilinear")
+            init_image = F.interpolate(
+                init_image.clone(), tuple(np.int64(content_scale * content_size)), mode="bilinear"
+            )
 
         if current_size <= 1664:
             opt.model.gpu = 1
