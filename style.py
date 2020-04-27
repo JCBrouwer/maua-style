@@ -19,7 +19,7 @@ def set_style_targets(net, style_images_big, content_size, opt=None):
 
     # Capture style targets
     for i, image in enumerate(style_images):
-        print("Capturing style target " + str(i + 1))
+        # print("Capturing style target " + str(i + 1))
         for j in net.style_losses:
             j.mode = "capture"
             j.blend_weight = opt.param.style_blend_weights[i]

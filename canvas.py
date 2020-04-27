@@ -91,8 +91,8 @@ def get_flow_model(opt):
         th.backends.cudnn.enabled = opt.model.backend == "cudnn"
 
         def process(im1, im2):
-            tens1 = th.FloatTensor(im1[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0)
-            tens2 = th.FloatTensor(im2[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0)
+            tens1 = th.FloatTensor(im1[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0)[:3]
+            tens2 = th.FloatTensor(im2[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0)[:3]
 
             assert tens1.size(1) == tens2.size(1)
             assert tens1.size(2) == tens2.size(2)
@@ -318,8 +318,8 @@ def vid_img(opt):
     ).overwrite_output().run()
 
 
-opt = load_config("config/ub94.yaml")
-if opt.transfer_type == "img_img":
-    img_img(opt)
-elif opt.transfer_type == "vid_img":
-    vid_img(opt)
+# opt = load_config("config/vid-ub94.yaml")
+# if opt.transfer_type == "img_img":
+#     img_img(opt)
+# elif opt.transfer_type == "vid_img":
+#     vid_img(opt)

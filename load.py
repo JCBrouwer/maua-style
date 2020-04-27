@@ -44,15 +44,15 @@ def process_style_images(opt):
 
     # Handle style blending weights for multiple style inputs
     style_blend_weights = []
-    if opt.param.style_blend_weights is False:
-        # Style blending not specified, so use equal weighting
-        for i in style_image_list:
-            style_blend_weights.append(1.0)
-    else:
-        style_blend_weights = [float(x) for x in opt.param.style_blend_weights.split(",")]
-        assert len(style_blend_weights) == len(
-            style_image_list
-        ), "-style_blend_weights and -style_images must have the same number of elements!"
+    # if opt.param.style_blend_weights is False:
+    # Style blending not specified, so use equal weighting
+    for i in style_image_list:
+        style_blend_weights.append(1.0)
+    # else:
+    #     style_blend_weights = [float(x) for x in opt.param.style_blend_weights.split(",")]
+    #     assert len(style_blend_weights) == len(
+    #         style_image_list
+    #     ), "-style_blend_weights and -style_images must have the same number of elements!"
 
     # Normalize the style blending weights so they sum to 1
     style_blend_sum = sum(style_blend_weights)
