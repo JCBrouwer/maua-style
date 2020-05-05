@@ -14,9 +14,11 @@ Image.MAX_IMAGE_PIXELS = 1000000000  # Support gigapixel images
 # We need to rescale from [0, 1] to [0, 255], convert from RGB to BGR,
 # and subtract the mean pixel.
 def preprocess(image_name):
-    image = Image.open(image_name).convert("RGB")
     rgb2bgr = T.Lambda(lambda x: x[th.LongTensor([2, 1, 0])])
     normalize = T.Normalize(mean=[103.939, 116.779, 123.68], std=[1, 1, 1])
+    if image_name == "random":
+        return normalize(rgb2bgr(th.randn((3, 256, 256)) * 256)).unsqueeze(0)
+    image = Image.open(image_name).convert("RGB")
     return normalize(rgb2bgr(T.ToTensor()(image) * 256)).unsqueeze(0)
 
 

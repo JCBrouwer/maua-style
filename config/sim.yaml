@@ -1,7 +1,7 @@
-output_dir: /home/hans/neurout/maua-style
+output_dir: /home/hans/datasets/cyphis/recomb/
 transfer_type: 'img_img'
 input:
-  content:
+  content: random
   style:
   init: content
   seed: 12274069
@@ -9,9 +9,9 @@ param:
   num_scales: 13
   image_sizes: 300,1500
   size_scaling: linear
-  num_iterations: 500,50
+  num_iterations: 50,250
   iter_scaling: power
-  content_weight: 5
+  content_weight: 0
   style_weight: 50000
   style_blend_weights: False
   style_scale: 1.0
@@ -33,5 +33,5 @@ optim:
   optimizer: lbfgs
   lbfgs_num_correction: 100
   learning_rate: 1
-  print_iter: 0
-  save_iter: 0
+  print_iter: -1
+  save_iter: -1

@@ -7,13 +7,13 @@ import config
 import canvas
 import models
 import pathos
+import imageio
+import itertools
 import PIL.Image
+import scipy.stats
 import numpy as np
 from tqdm import tqdm
 from sklearn.decomposition import PCA
-import scipy.stats
-import imageio
-import numpy as np
 
 dataset_name = "cyphis"
 dataset_folder = f"/home/hans/datasets/{dataset_name}"
@@ -54,26 +54,41 @@ if not os.path.exists(f"{dataset_folder}/dists.npy"):
 else:
     dists = np.load(f"{dataset_folder}/dists.npy")
 
-top_n = 6
+top_n = 4
 best_indices = np.argpartition(dists, top_n, axis=1)[:, :top_n]
-
-print(best_indices.shape, len(images))
 closest = [[images[j] for j in best_indices[i]] for i in range(len(images))]
 
-print("saving grids of closest neighbors...")
-for ii, closest in enumerate(tqdm(closest)):
-    grid = PIL.Image.new("RGB", (900, 900))
 
-    im = PIL.Image.open(images[ii])
-    im.thumbnail((300, 300))
-    grid.paste(im, (0, 0))
+def generate_grids():
+    print("saving grids of closest neighbors...")
+    for ii, closest in enumerate(tqdm(closest)):
+        grid = PIL.Image.new("RGB", (900, 900))
 
-    index = 0
-    for i in range(300, 900, 300):
-        for j in range(0, 900, 300):
-            im = PIL.Image.open(closest[index])
-            im.thumbnail((300, 300))
-            grid.paste(im, (i, j))
-            index += 1
+        im = PIL.Image.open(images[ii])
+        styles = load.process_style_images(opt)
+        im.thumbnail((300, 300))
+        grid.paste(im, (0, 0))
 
-    grid.save(f"{dataset_folder}/grids/{images[ii].split('/')[-1].split('.')[0]}.png")
+        index = 0
+        for i in range(300, 900, 300):
+            for j in range(0, 900, 300):
+                im = PIL.Image.open(closest[index])
+                im.thumbnail((300, 300))
+                grid.paste(im, (i, j))
+                index += 1
+
+        grid.save(f"{dataset_folder}/grids/{images[ii].split('/')[-1].split('.')[0]}.png")
+
+
+# generate_grids()
+
+opt = config.load_config("config/sim.yaml")
+
+for ii, main_im in enumerate(tqdm(images)):
+    for imfile in closest[ii]:
+        opt.input.style = f"{main_im},{imfile}"
+        # print(opt.input.style)
+        canvas.img_img(opt)
+    for imfiles in itertools.combinations(closest[ii], 2):
+        opt.input.style = f"{main_im}{','.join(imfiles)}"
+        canvas.img_img(opt)

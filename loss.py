@@ -53,6 +53,8 @@ class ContentLoss(nn.Module):
 
     def forward(self, input):
         if self.mode == "loss":
+            if input.shape != self.target.shape:
+                return input
             if self.weights is not None:
                 self.loss = self.crit(input * self.weights, self.target) * self.strength
             else:

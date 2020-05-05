@@ -256,7 +256,7 @@ def select_model(model_file, pooling):
             print("Using The SOD Fintune Model")
             cnn, layerList = VGG_SOD(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
         elif "19" in model_file:
-            print("VGG-19 Architecture Detected")
+            # print("VGG-19 Architecture Detected")
             if not path.exists(model_file):
                 # Download the VGG-19 model and fix the layer names
                 print("Model file not found: " + model_file)
@@ -317,7 +317,7 @@ def load_model(opt, param):
     cnn, layer_list = select_model(str(opt.model_file).lower(), opt.pooling)
 
     cnn.load_state_dict(torch.load(opt.model_file), strict=(not opt.disable_check))
-    print("Successfully loaded " + str(opt.model_file))
+    # print("Successfully loaded " + str(opt.model_file))
 
     # Maybe convert the model to cuda now, to avoid later issues
     if "c" not in str(opt.gpu).lower() or "c" not in str(opt.gpu[0]).lower():
@@ -340,7 +340,7 @@ def load_model(opt, param):
         tv_losses.append(tv_mod)
 
     # HACK abuse of Options class (which is a dict) to avoid error here when temporal_weight not in img/img config
-    if param.get('temporal_weight', 0) > 0:
+    if param.get("temporal_weight", 0) > 0:
         temporal_mod = ContentLoss(param.temporal_weight)
         net.add_module(str(len(net)), temporal_mod)
         temporal_losses.append(temporal_mod)
@@ -351,13 +351,13 @@ def load_model(opt, param):
                 net.add_module(str(len(net)), layer)
 
                 if layer_list["C"][c] in content_layers:
-                    print("Setting up content layer " + str(i) + ": " + str(layer_list["C"][c]))
+                    # print("Setting up content layer " + str(i) + ": " + str(layer_list["C"][c]))
                     loss_module = ContentLoss(param.content_weight)
                     net.add_module(str(len(net)), loss_module)
                     content_losses.append(loss_module)
 
                 if layer_list["C"][c] in style_layers:
-                    print("Setting up style layer " + str(i) + ": " + str(layer_list["C"][c]))
+                    # print("Setting up style layer " + str(i) + ": " + str(layer_list["C"][c]))
                     loss_module = StyleLoss(param.style_weight, param.use_covariance)
                     net.add_module(str(len(net)), loss_module)
                     style_losses.append(loss_module)
@@ -367,14 +367,14 @@ def load_model(opt, param):
                 net.add_module(str(len(net)), layer)
 
                 if layer_list["R"][r] in content_layers:
-                    print("Setting up content layer " + str(i) + ": " + str(layer_list["R"][r]))
+                    # print("Setting up content layer " + str(i) + ": " + str(layer_list["R"][r]))
                     loss_module = ContentLoss(param.content_weight)
                     net.add_module(str(len(net)), loss_module)
                     content_losses.append(loss_module)
                     next_content_idx += 1
 
                 if layer_list["R"][r] in style_layers:
-                    print("Setting up style layer " + str(i) + ": " + str(layer_list["R"][r]))
+                    # print("Setting up style layer " + str(i) + ": " + str(layer_list["R"][r]))
                     loss_module = StyleLoss(param.style_weight, param.use_covariance)
                     net.add_module(str(len(net)), loss_module)
                     style_losses.append(loss_module)

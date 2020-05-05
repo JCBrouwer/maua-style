@@ -16,49 +16,61 @@ def info(x):
 
 
 def get_histogram(tensor, eps):
-    mu_h = tensor.mean(0).mean(0)
+    mu_h = tensor.mean(list(range(len(tensor.shape) - 1)))
     h = tensor - mu_h
-    h = h.permute(2, 0, 1).reshape(tensor.size(2), -1)
+    h = h.permute(0, 3, 1, 2).reshape(tensor.size(3), -1)
     Ch = th.mm(h, h.T) / h.shape[1] + eps * th.eye(h.shape[0])
     return mu_h, h, Ch
 
 
-def match_histogram(target_tensor, source_tensor, eps=1e-5):
-    target_tensor += target_tensor * 0.01 * th.rand(target_tensor.size())  # helps symeig convergence
-    original_target = target_tensor.clone()
-    try:
-        if target_tensor.dim() == 4:
-            target_tensor = target_tensor.squeeze(0)
-        if source_tensor.dim() == 4:
-            source_tensor = source_tensor.squeeze(0)
+def match_histogram(target_tensor, source_tensor, eps=1e-2, mode="avg"):
+    if mode is "avg":
+        elementwise = True
+        random_frame = False
+    else:
+        elementwise = False
+        random_frame = True
 
-        target_tensor = target_tensor.permute(2, 1, 0)  # Function expects w,h,c
-        source_tensor = source_tensor.permute(2, 1, 0)  # Function expects w,h,c
+    if not isinstance(source_tensor, list):
+        source_tensor = [source_tensor]
 
-        _, t, Ct = get_histogram(target_tensor, eps)
-        mu_s, _, Cs = get_histogram(source_tensor, eps)
+    output_tensor = th.zeros_like(target_tensor)
+    for source in source_tensor:
+        target = target_tensor.permute(0, 3, 2, 1)  # Function expects b,w,h,c
+        source = source.permute(0, 3, 2, 1)  # Function expects b,w,h,c
+        if elementwise:
+            source = source.mean(0).unsqueeze(0)
+        if random_frame:
+            source = source[np.random.randint(0, source.shape[0])].unsqueeze(0)
 
-        # PCA
-        eva_t, eve_t = th.symeig(Ct, eigenvectors=True, upper=True)
-        Et = th.sqrt(th.diagflat(eva_t))
-        Et[Et != Et] = 0  # Convert nan to 0
-        Qt = th.mm(th.mm(eve_t, Et), eve_t.T)
-        eva_s, eve_s = th.symeig(Cs, eigenvectors=True, upper=True)
-        Es = th.sqrt(th.diagflat(eva_s))
-        Es[Es != Es] = 0  # Convert nan to 0
-        Qs = th.mm(th.mm(eve_s, Es), eve_s.T)
-        ts = th.mm(th.mm(Qs, th.inverse(Qt)), t)
+        matched_tensor = th.zeros_like(target)
+        for idx in range(target.shape[0] if elementwise else 1):
+            frame = target[idx].unsqueeze(0) if elementwise else target
+            _, t, Ct = get_histogram(frame, eps)
+            mu_s, _, Cs = get_histogram(source, eps)
 
-        matched_tensor = ts.reshape(*target_tensor.permute(2, 0, 1).shape).permute(1, 2, 0)
-        matched_tensor += mu_s
+            # PCA
+            eva_t, eve_t = th.symeig(Ct, eigenvectors=True, upper=True)
+            Et = th.sqrt(th.diagflat(eva_t))
+            Et[Et != Et] = 0  # Convert nan to 0
+            Qt = th.mm(th.mm(eve_t, Et), eve_t.T)
 
-        matched_tensor = matched_tensor.permute(2, 1, 0)
-    except Exception as error:
-        print(f"Histogram matching error: {error}! Continuing with original image...")
-        print(traceback.format_exc())
-        matched_tensor = original_target.squeeze(0)
-        matched_tensor += matched_tensor * 0.1 * th.rand(matched_tensor.size())
-    return matched_tensor.unsqueeze(0)
+            eva_s, eve_s = th.symeig(Cs, eigenvectors=True, upper=True)
+            Es = th.sqrt(th.diagflat(eva_s))
+            Es[Es != Es] = 0  # Convert nan to 0
+            Qs = th.mm(th.mm(eve_s, Es), eve_s.T)
+
+            ts = th.mm(th.mm(Qs, th.inverse(Qt)), t)
+
+            match = ts.reshape(*frame.permute(0, 3, 1, 2).shape).permute(0, 2, 3, 1)
+            match += mu_s
+
+            if elementwise:
+                matched_tensor[idx] = match
+            else:
+                matched_tensor = match
+        output_tensor += matched_tensor.permute(0, 3, 2, 1) / len(source_tensor)
+    return output_tensor
 
 
 def determine_scaling(opt):
@@ -80,7 +92,7 @@ def determine_scaling(opt):
 
     image_sizes = opt_to_ints(opt.image_sizes, opt.size_scaling, opt.num_scales)
     num_iters = opt_to_ints(opt.num_iterations, opt.iter_scaling, opt.num_scales)
-    return image_sizes, num_iters
+    return image_sizes, reversed(num_iters)
 
 
 def get_flow_model(opt):
@@ -133,13 +145,13 @@ def img_img(opt):
     )
 
     style_images_big = load.process_style_images(opt)
-    content_image_big = match_histogram(load.preprocess(opt.input.content), style_images_big[0])
+    content_image_big = match_histogram(load.preprocess(opt.input.content), style_images_big)
     content_size = np.array(content_image_big.size()[-2:])
     if opt.input.init != "content" and opt.input.init != "random":
         init_image = load.preprocess(opt.input.init)
 
     for i, (current_size, num_iters) in enumerate(zip(*determine_scaling(opt.param))):
-        print("\nCurrent size {}px".format(current_size))
+        # print("\nCurrent size {}px".format(current_size))
 
         net = models.load_model(opt.model, opt.param)
 
@@ -173,7 +185,7 @@ def img_img(opt):
 
         output_image = net.optimize(init_image, opt)
 
-        init_image = match_histogram(output_image.detach().cpu(), style_images_big[0])
+        init_image = match_histogram(output_image.detach().cpu(), style_images_big)
 
     disp = load.deprocess(init_image.clone())
     if opt.param.original_colors == 1:
