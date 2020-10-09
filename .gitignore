@@ -4,3 +4,5 @@ neural-style-pt/
 thoth/
 artistic-videos/
 .ipynb_checkpoints/
+*.pyc
+

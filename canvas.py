@@ -330,8 +330,8 @@ def vid_img(opt):
     ).overwrite_output().run()
 
 
-# opt = load_config("config/vid-ub94.yaml")
-# if opt.transfer_type == "img_img":
-#     img_img(opt)
-# elif opt.transfer_type == "vid_img":
-#     vid_img(opt)
+opt = load_config("config/vid-ub94.yaml")
+if opt.transfer_type == "img_img":
+    img_img(opt)
+elif opt.transfer_type == "vid_img":
+    vid_img(opt)
