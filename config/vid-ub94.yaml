@@ -3,14 +3,14 @@ transfer_type: 'vid_img'
 input:
   content:
   style:
-  init: content # [prev_warp, random]
+  init: random # [prev_warp, random]
   seed: -1
 param:
   num_scales: 2
   passes_per_scale: 4
   image_sizes: 256,384,512,600,724,850,1024 #,1448,1920
   size_scaling: power # [linear]
-  num_iterations: 800,700,600,500,400,300,200 #,100,50
+  num_iterations: 1000,400,400,400,400,300,200 #,100,50
   iter_scaling: power
   content_weight: 500
   temporal_weight: 15000
@@ -45,8 +45,12 @@ flow:
   model_cpu:  deepflow2
   model_type_cpu: sintel
 ffmpeg:
-  framerate: 10
-  vcodec: hevc_nvenc
-  c:v: hevc_nvenc
-  preset: slow
-  b:v: 20M
+  framerate: 30
+  pix_fmt: yuv420p
+  crf: 20
+# ffmpeg:
+#   framerate: 10
+#   vcodec: hevc_nvenc
+#   c:v: hevc_nvenc
+#   preset: slow
+#   b:v: 20M

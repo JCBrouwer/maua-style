@@ -92,7 +92,7 @@ def determine_scaling(opt):
 
     image_sizes = opt_to_ints(opt.image_sizes, opt.size_scaling, opt.num_scales)
     num_iters = opt_to_ints(opt.num_iterations, opt.iter_scaling, opt.num_scales)
-    return image_sizes, reversed(num_iters)
+    return image_sizes, num_iters
 
 
 def get_flow_model(opt):
@@ -330,7 +330,7 @@ def vid_img(opt):
     ).overwrite_output().run()
 
 
-opt = load_config("config/vid-ub94.yaml")
+opt = load_config("config/ub94.yaml")
 if opt.transfer_type == "img_img":
     img_img(opt)
 elif opt.transfer_type == "vid_img":
