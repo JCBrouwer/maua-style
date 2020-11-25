@@ -26,7 +26,7 @@ def preprocess(image_name):
 def deprocess(output_tensor):
     normalize = T.Normalize(mean=[-103.939, -116.779, -123.68], std=[1, 1, 1])
     bgr2rgb = T.Lambda(lambda x: x[th.LongTensor([2, 1, 0])])
-    output_tensor = bgr2rgb(normalize(output_tensor.squeeze(0).cpu())) / 256
+    output_tensor = bgr2rgb(normalize(output_tensor.squeeze(0).float().cpu())) / 256
     output_tensor.clamp_(0, 1)
     return T.ToPILImage()(output_tensor.cpu())
 

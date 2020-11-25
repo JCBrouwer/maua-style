@@ -5,4 +5,4 @@ thoth/
 artistic-videos/
 .ipynb_checkpoints/
 *.pyc
-
+.vscode/

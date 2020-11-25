@@ -1,4 +1,4 @@
-import re
+import re, gc
 import math
 import os.path
 import load
@@ -24,7 +24,7 @@ def get_histogram(tensor, eps):
 
 
 def match_histogram(target_tensor, source_tensor, eps=1e-2, mode="avg"):
-    if mode is "avg":
+    if mode == "avg":
         elementwise = True
         random_frame = False
     else:
@@ -138,6 +138,7 @@ def img_img(opt):
     name = lambda s: s.split("/")[-1].split(".")[0]
     output = (
         opt.output_dir
+        + "/"
         + name(opt.input.content)
         + "_"
         + "_".join([name(s) for s in opt.input.style.split(",")])
@@ -151,19 +152,15 @@ def img_img(opt):
         init_image = load.preprocess(opt.input.init)
 
     for i, (current_size, num_iters) in enumerate(zip(*determine_scaling(opt.param))):
-        # print("\nCurrent size {}px".format(current_size))
-
-        net = models.load_model(opt.model, opt.param)
+        print("\nCurrent size {}px".format(current_size))
 
         content_scale = current_size / max(*content_size)
-        net.set_content_targets(content_image_big, content_scale, opt)
-        net.set_style_targets(style_images_big, content_scale * content_size, opt)
 
         # Initialize the image
-        if opt.input.init == "random":
+        if opt.input.init == "random" and i == 0:
             B, C, H, W = 1, 3, content_scale * content_size
             init_image = th.randn(C, H, W).mul(0.001).unsqueeze(0)
-        elif opt.input.init == "content":
+        elif opt.input.init == "content" and i == 0:
             init_image = F.interpolate(
                 content_image_big.clone(), tuple(np.int64(content_scale * content_size)), mode="bilinear"
             )
@@ -172,20 +169,36 @@ def img_img(opt):
                 init_image.clone(), tuple(np.int64(content_scale * content_size)), mode="bilinear"
             )
 
-        if current_size <= 1664:
+        if current_size <= 1600:
             opt.model.gpu = 1
             opt.model.multidevice = False
-        else:
+        else:  # if current_size <= 3000:
             opt.model.gpu = "0,1"
             opt.model.multidevice = True
             opt.param.tv_weight = 0
+            opt.model.model_file = "../style-transfer/models/vgg16-00b39a1b.pth"
+            opt.optim.optimizer = "adam"
+        # else:
+        #     opt.model.model_file = "../style-transfer/models/nin_imagenet.pth"
+
         opt.param.num_iterations = num_iters
         opt.optim.print_iter = num_iters // 4
         opt.output = re.sub(r"(\..*)", "_{}".format(current_size) + r"\1", output)
+        if os.path.exists(opt.output):
+            init_image = load.preprocess(opt.output)
+            continue
+
+        net = models.load_model(opt.model, opt.param)
+        net.set_content_targets(content_image_big, content_scale, opt)
+        net.set_style_targets(style_images_big, content_scale * content_size, opt)
 
         output_image = net.optimize(init_image, opt)
 
         init_image = match_histogram(output_image.detach().cpu(), style_images_big)
+
+        del net
+        gc.collect()
+        th.cuda.empty_cache()
 
     disp = load.deprocess(init_image.clone())
     if opt.param.original_colors == 1:
@@ -323,6 +336,7 @@ def vid_img(opt):
         ).overwrite_output().run()
         prev_size = current_size
         del net
+        gc.collect()
         th.cuda.empty_cache()
 
     ffmpeg.input(output_dir + "/" + str(current_size) + "/" + str(pass_n) + "_%05d.png").output(
@@ -330,7 +344,7 @@ def vid_img(opt):
     ).overwrite_output().run()
 
 
-opt = load_config("config/ub94.yaml")
+opt = load_config("config/ub96.yaml")
 if opt.transfer_type == "img_img":
     img_img(opt)
 elif opt.transfer_type == "vid_img":
