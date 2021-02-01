@@ -83,7 +83,7 @@ class ContentLoss(nn.Module):
                     loss = self.crit(input[[idx]], self.target)
                 if self.normalize:
                     loss = ScaleGradients.apply(loss, self.strength)
-                self.loss = loss * self.strength / input.shape[0]
+                self.loss += loss * self.strength / input.shape[0]
 
             if self.mode == "capture":
                 self.target = input.detach()
@@ -164,9 +164,6 @@ class StyleLoss(nn.Module):
         if self.video_style_factor > 0:
             self.dynamic_loss(input)
 
-        if self.normalize:
-            self.loss = ScaleGradients.apply(self.loss, self.strength)
-
         return input
 
     def static_loss(self, input):
@@ -181,12 +178,15 @@ class StyleLoss(nn.Module):
                     self.target += self.blend_weight * gram.detach() / input.shape[0]
 
             if self.mode == "loss":
-                self.loss += self.strength * self.crit(gram, self.target) / input.shape[0]
+                loss = self.crit(gram, self.target)
+                if self.normalize:
+                    loss = ScaleGradients.apply(loss, self.strength)
+                self.loss += loss * self.strength / input.shape[0]
 
-            if self.shift_factor > 0:
-                self.shift_loss(input)
-            if self.flip_factor > 0:
-                self.flip_loss(input)
+            # if self.shift_factor > 0:
+            #     self.shift_loss(input)
+            # if self.flip_factor > 0:
+            #     self.flip_loss(input)
 
     def dynamic_loss(self, input):
         if self.video_target.nelement() != 0 and self.gram(input, False).shape[0] != self.video_target.shape[0]:
@@ -201,12 +201,15 @@ class StyleLoss(nn.Module):
                 self.video_target += self.blend_weight * gram.detach()
 
         if self.mode == "loss":
-            self.loss += self.video_style_factor * self.strength * self.crit(gram, self.video_target)
+            loss = self.crit(gram, self.target)
+            if self.normalize:
+                loss = ScaleGradients.apply(loss, self.strength)
+            self.loss += self.video_style_factor * loss * self.strength / input.shape[0]
 
-        if self.shift_factor > 0:
-            self.shift_loss(input)
-        if self.flip_factor > 0:
-            self.flip_loss(input)
+        # if self.shift_factor > 0:
+        #     self.shift_loss(input)
+        # if self.flip_factor > 0:
+        #     self.flip_loss(input)
 
     def shift_loss(self, input):
         # deltas are powers of 2 of up to 1/4 the input size

@@ -7,9 +7,9 @@ input:
   seed: -1
 param:
   num_scales: 2
-  image_sizes: 500,1000,2000,3000,4000,5000,6000
+  image_sizes: 256,512,1024,2048,3072,4096,5000,6000
   size_scaling: linear
-  num_iterations: 100,50,50,50
+  num_iterations: 500,500,400,300,200,100,50,50
   iter_scaling: linear
   content_weight: 1
   style_weight: 100
@@ -30,9 +30,18 @@ model:
   backend: cudnn
   cudnn_autotune: True
   multidevice_strategy: 9
+  verbose: True
 optim:
   optimizer: lbfgs
   lbfgs_num_correction: 100
+  lbfgs_tolerance_change: -1 #1e-5
+  lbfgs_tolerance_grad: -1 #1e-7
   learning_rate: 1
-  print_iter: 0
   save_iter: 0
+  print_iter: 0
+ffmpeg:
+  vcodec: hevc_nvenc
+  c:v: hevc_nvenc
+  preset: slow
+  b:v: 20M
+  fps: 18

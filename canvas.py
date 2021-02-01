@@ -27,10 +27,10 @@ def img_img(opt):
         pastiche = None
 
     for (current_size, num_iters) in zip(*determine_scaling(opt.param)):
-        if os.path.exists(f"{opt.output}_{size}.png"):
-            pastiche = load.preprocess(f"{opt.output}_{size}.png")
+        print("\nCurrent size {}px".format(current_size))
+        if os.path.exists(f"{opt.output}_{current_size}.png"):
+            pastiche = load.preprocess(f"{opt.output}_{current_size}.png")
             continue
-        opt.pbar.set_description(f"{opt.output.split('/')[-1]} @ {current_size}px")
 
         # scale content image
         content_scale = current_size / max(*content_size)
@@ -69,7 +69,7 @@ def img_img(opt):
 
         pastiche = match_histogram(output_image.detach().cpu(), style_images_big)
 
-    load.save_tensor_to_file(pastiche.detach().cpu(), opt)
+        load.save_tensor_to_file(pastiche.detach().cpu(), opt)
 
 
 def img_vid(opt):
@@ -291,11 +291,11 @@ def vid_img(opt):
     ).overwrite_output().run()
 
 
-# opt = load_config("config/stylevid.yaml")
-# opt.output = f"{opt.output_dir}/{name(opt.input.content)}_{'_'.join([name(s) for s in opt.input.style.split(',')])}"
-# if opt.transfer_type == "img_img":
-#     img_img(opt)
-# elif opt.transfer_type == "vid_img":
-#     vid_img(opt)
-# elif opt.transfer_type == "img_vid":
-#     img_vid(opt)
+opt = load_config("config/ub96.yaml")
+opt.output = f"{opt.output_dir}/{name(opt.input.content)}_{'_'.join([name(s) for s in opt.input.style.split(',')])}"
+if opt.transfer_type == "img_img":
+    img_img(opt)
+elif opt.transfer_type == "vid_img":
+    vid_img(opt)
+elif opt.transfer_type == "img_vid":
+    img_vid(opt)
