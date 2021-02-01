@@ -1,20 +1,22 @@
+import gc
 import math
 import os.path
-import load
+import re
+import traceback
 import uuid
-import style
-from config import load_config
+
+import ffmpeg
+import numpy as np
+import scipy.ndimage as ndi
 import torch as th
 import torch.nn.functional as F
-import numpy as np
-import ffmpeg
-import traceback
-import scipy.ndimage as ndi
+
 import flow
-from utils import info, name, determine_scaling, match_histogram
+import load
 import models
-import re
-import gc
+import style
+from config import load_config
+from utils import determine_scaling, info, match_histogram, name
 
 
 def img_img(opt):
@@ -69,7 +71,7 @@ def img_img(opt):
 
         pastiche = match_histogram(output_image.detach().cpu(), style_images_big)
 
-        load.save_tensor_to_file(pastiche.detach().cpu(), opt)
+        load.save_tensor_to_file(pastiche.detach().cpu(), opt, size=current_size)
 
 
 def img_vid(opt):
@@ -90,19 +92,15 @@ def img_vid(opt):
     delta_ts = opt.param.gram_frame_window.split(",")
 
     # initialize pastiche image
-    content_size = np.array(content_image_big.size()[-2:])
+    H, W = content_size = np.array(content_image_big.size()[-2:])
     if opt.input.init == "random":
-        H, W = content_size
         pastiche = th.randn((video_length, 3, H, W)) * 255
-        pastiche = th.from_numpy(
-            ndi.gaussian_filter(pastiche.numpy(), [video_length // 6, 0, H / 128, W / 128], mode="wrap")
-        )
+        pastiche = th.from_numpy(ndi.gaussian_filter(pastiche.numpy(), [video_length, 0, H / 32, W / 32], mode="wrap"))
     elif opt.input.init == "content":
         pastiche = F.interpolate(content_image_big.clone(), tuple(content_size), mode="bilinear", align_corners=False)
         pastiche = pastiche.repeat([video_length, 1, 1, 1])
-        H, W = content_size
         pastiche += th.randn((video_length, 3, H, W)) * 255
-        pastiche = th.from_numpy(ndi.gaussian_filter(pastiche.numpy(), [video_length // 6, 0, 4, 4], mode="wrap"))
+        pastiche = th.from_numpy(ndi.gaussian_filter(pastiche.numpy(), [video_length, 0, 4, 4], mode="wrap"))
     else:
         pastiche = load.preprocess_video(opt.input.init, opt.ffmpeg.fps)
         pastiche = pastiche.repeat([video_length, 1, 1, 1])
@@ -110,6 +108,9 @@ def img_vid(opt):
         pastiche = match_histogram(pastiche, style_videos_big, mode=opt.param.match_histograms)
 
     for i, (current_size, num_iters) in enumerate(zip(*determine_scaling(opt.param))):
+        if os.path.exists(f"{opt.output}_{current_size}.mp4"):
+            pastiche = load.preprocess_video(f"{opt.output}_{current_size}.mp4", opt.ffmpeg.fps)
+            continue
         print("\nCurrent size {}px".format(current_size))
         opt.param.gram_frame_window = int(delta_ts[i])
 
@@ -134,8 +135,8 @@ def img_vid(opt):
 
         pastiche = style.optimize(content_image, style_videos, pastiche, num_iters, opt).detach().cpu()
 
-        # pastiche = th.cat((output[7:], output[:7]))
-        # style_videos_big = [th.cat((svb[7:], svb[:7])) for svb in style_videos_big]
+        pastiche = th.cat((pastiche[7:], pastiche[:7]))
+        style_videos_big = [th.cat((svb[7:], svb[:7])) for svb in style_videos_big]
 
         if opt.param.temporal_smoothing > 0:
             pastiche = th.from_numpy(
@@ -145,7 +146,6 @@ def img_vid(opt):
             pastiche = match_histogram(pastiche, style_videos_big, mode=opt.param.match_histograms)
         load.save_tensor_to_file(pastiche, opt, filename=f"{opt.output}_{current_size}")
         # load.save_tensor_to_file(pastiche, opt, filename=f"{opt.output}_raw_{current_size}")
-        exit()
 
     load.save_tensor_to_file(match_histogram(pastiche, style_videos_big, mode=opt.param.match_histograms), opt)
 
@@ -291,7 +291,7 @@ def vid_img(opt):
     ).overwrite_output().run()
 
 
-opt = load_config("config/ub96.yaml")
+opt = load_config("config/stylevid.yaml")
 opt.output = f"{opt.output_dir}/{name(opt.input.content)}_{'_'.join([name(s) for s in opt.input.style.split(',')])}"
 if opt.transfer_type == "img_img":
     img_img(opt)

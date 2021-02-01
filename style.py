@@ -1,25 +1,26 @@
 import gc
-import sys
-import load
-import tqdm
+import math
 import os.path
-import models
+import sys
+
+import numpy as np
 import torch as th
 import torch.nn as nn
-import numpy as np
-from torch import optim
-import loss
-import math
 import torch.nn.functional as F
+import tqdm
+from torch import optim
+
+import load
+import loss
+import models
 from utils import info, wrapping_slice
 
-
-# PBAR = tqdm.tqdm(file=sys.stdout, smoothing=0.1)
+PBAR = tqdm.tqdm(file=sys.stdout, smoothing=0.1)
 
 
 def set_content_targets(net, content_image, opt):
-    # if opt.pbar:
-    #     PBAR.set_description(f"Capturing content targets...")
+    if opt.pbar:
+        PBAR.set_description(f"Capturing content targets...")
 
     for i in net.content_losses:
         i.mode = "capture"
@@ -31,8 +32,8 @@ def set_content_targets(net, content_image, opt):
 
 
 def set_temporal_targets(net, warp_image, warp_weights=None, opt=None):
-    # if opt.pbar:
-    #     PBAR.set_description(f"Capturing temporal targets...")
+    if opt.pbar:
+        PBAR.set_description(f"Capturing temporal targets...")
 
     for i in net.temporal_losses:
         i.mode = "capture"
@@ -46,8 +47,8 @@ def set_temporal_targets(net, warp_image, warp_weights=None, opt=None):
 
 
 def set_style_targets(net, style_images, opt):
-    # if opt.pbar:
-    #     PBAR.set_description(f"Capturing style targets...")
+    if opt.pbar:
+        PBAR.set_description(f"Capturing style targets...")
 
     for j in net.style_losses:
         j.reset_targets()
@@ -65,8 +66,8 @@ def set_style_targets(net, style_images, opt):
 
 
 def set_style_video_targets(net, style_videos, opt):
-    # if opt.pbar:
-    #     PBAR.set_description(f"Capturing style video targets...")
+    if opt.pbar:
+        PBAR.set_description(f"Capturing style video targets...")
 
     for j in net.style_losses:
         j.reset_targets()
@@ -89,10 +90,10 @@ def set_style_video_targets(net, style_videos, opt):
 
 
 def optimize(content, styles, init, num_iters, opt):
-    if init.numel() <= 1664 * 1664 * 3:
+    if init.numel() <= 5 * 1664 * 1664 * 3:
         opt.model.gpu = 0
         opt.model.multidevice = False
-    elif init.numel() <= 3000 * 3000 * 3:
+    elif init.numel() <= 5 * 3000 * 3000 * 3:
         opt.model.gpu = "0,1"
         opt.model.multidevice = True
         opt.param.tv_weight = 0
@@ -120,21 +121,19 @@ def optimize(content, styles, init, num_iters, opt):
         ]
     else:
         windows = [[0]] * len(styles)
-    # print(windows)
+    print(windows)
 
     net, losses = models.load_model(opt.model, opt.param)
 
-    # if opt.pbar:
-    #     PBAR.reset()
-    #     PBAR.total = len(windows[0]) * num_iters
-    #     PBAR.refresh()
-    # else:
-    #     line = ""
-    #     r2 = nn.Module()
-    #     r2.name = "R2"
-    #     for mod in losses:
-    #         line += f"{mod.name:<10s}"
-    #     print(line)
+    if opt.pbar:
+        PBAR.reset()
+        PBAR.total = len(windows[0]) * num_iters
+        PBAR.refresh()
+    else:
+        line = ""
+        for mod in losses:
+            line += f"{mod.name:<10s}"
+        print(line)
 
     set_content_targets(net, content, opt)
 
@@ -181,8 +180,8 @@ def optimize(content, styles, init, num_iters, opt):
                 i.strength = i.strength / max(i.target.size())
 
         if opt.optim.optimizer == "lbfgs":
-            # if opt.pbar:
-            #     PBAR.set_description(f"Running optimization with L-BFGS")
+            if opt.pbar:
+                PBAR.set_description(f"Running optimization with L-BFGS")
             optim_state = {
                 "max_iter": num_iters,
                 "tolerance_change": float(opt.optim.lbfgs_tolerance_change),
@@ -193,8 +192,8 @@ def optimize(content, styles, init, num_iters, opt):
             optimizer = optim.LBFGS([pastiche], **optim_state)
             iters = 1
         elif opt.optim.optimizer == "adam":
-            # if opt.pbar:
-            #     PBAR.set_description(f"Running optimization with ADAM")
+            if opt.pbar:
+                PBAR.set_description(f"Running optimization with ADAM")
             optimizer = optim.Adam([pastiche], lr=opt.optim.learning_rate)
             iters = num_iters
 
@@ -223,10 +222,12 @@ def optimize(content, styles, init, num_iters, opt):
             for mod in losses:
                 mod.loss = 0
 
-            # if opt.pbar:
-            #     PBAR.update(1)
+            if opt.pbar:
+                PBAR.update(1)
             i[0] += 1
 
+            if opt.optim.print_iter > 0 and i[0] % opt.optim.print_iter == 0 and opt.model.verbose:
+                print(f"Iteration {i[0]} / {opt.param.num_iterations}, Loss: {total_loss}")
             if opt.optim.save_iter > 0 and (i[0] % opt.optim.save_iter == 0 or i[0] == num_iters):
                 load.save_tensor_to_file(
                     pastiche.detach().cpu(),
@@ -244,13 +245,13 @@ def optimize(content, styles, init, num_iters, opt):
                 #         f"style_{s}_{pastiche.size(3)}",
                 #     )
 
-            # if not opt.pbar:
-            #     if i[0] % (num_iters // 8) == 0:
-            #         line = ""
-            #         for ll in log_losses[0]:
-            #             line += f"{f'{ll / (num_iters // 8):.2E}':<10s}"
-            #         print(line)
-            #         log_losses[0] = [0] * len(losses)
+            if not opt.pbar:
+                if i[0] % (num_iters // 8) == 0:
+                    line = ""
+                    for ll in log_losses[0]:
+                        line += f"{f'{ll / (num_iters // 8):.2E}':<10s}"
+                    print(line)
+                    log_losses[0] = [0] * len(losses)
 
             return total_loss
 

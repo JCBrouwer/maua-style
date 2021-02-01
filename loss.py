@@ -1,38 +1,9 @@
-import torch
-import torch.nn as nn
-import torch.autograd as autograd
 import numpy as np
+import torch
+import torch.autograd as autograd
+import torch.nn as nn
+
 from utils import info
-
-
-# def gradient_penalty(x, y, f):
-#     # interpolation
-#     shape = [x.size(0)] + [1] * (x.dim() - 1)
-#     alpha = torch.rand(shape).to(x.device)
-#     z = x + alpha * (y - x)
-
-#     # gradient penalty
-#     z = autograd.Variable(z, requires_grad=True).to(x.device)
-#     o = f(z)
-#     g = autograd.grad(o, z, grad_outputs=torch.ones(o.size()).to(z.device), create_graph=True)[0].view(z.size(0), -1)
-#     gp = ((g.norm(p=2, dim=1) - 1) ** 2).mean()
-#     return gp
-
-
-# def R1Penalty(real_img, f):
-#     # gradient penalty
-#     reals = autograd.Variable(real_img, requires_grad=True).to(real_img.device)
-#     real_logit = f(reals)
-#     apply_loss_scaling = lambda x: x * torch.exp(x * torch.Tensor([np.float32(np.log(2.0))]).to(real_img.device))
-#     undo_loss_scaling = lambda x: x * torch.exp(-x * torch.Tensor([np.float32(np.log(2.0))]).to(real_img.device))
-
-#     real_logit = apply_loss_scaling(torch.sum(real_logit))
-#     real_grads = autograd.grad(
-#         real_logit, reals, grad_outputs=torch.ones(real_logit.size()).to(reals.device), create_graph=True
-#     )[0].view(reals.size(0), -1)
-#     real_grads = undo_loss_scaling(real_grads)
-#     r1_penalty = torch.sum(torch.mul(real_grads, real_grads))
-#     return r1_penalty
 
 
 # Scale gradients in the backward pass
@@ -118,7 +89,6 @@ class GramMatrix(nn.Module):
         return torch.mm(x_flat, y_flat.t())
 
 
-# Define an nn Module to compute style loss
 class StyleLoss(nn.Module):
     def __init__(
         self,
@@ -201,7 +171,7 @@ class StyleLoss(nn.Module):
                 self.video_target += self.blend_weight * gram.detach()
 
         if self.mode == "loss":
-            loss = self.crit(gram, self.target)
+            loss = self.crit(gram, self.video_target)
             if self.normalize:
                 loss = ScaleGradients.apply(loss, self.strength)
             self.loss += self.video_style_factor * loss * self.strength / input.shape[0]

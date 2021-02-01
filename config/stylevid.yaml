@@ -1,23 +1,23 @@
 output_dir: /home/hans/neurout/maua-style
 transfer_type: 'img_vid'
-pbar: False
+pbar: True
 input:
   content: random
   style: 'examples/ground_truth_sea_2.gif'
   init: random
   seed: -1
 param:
-  num_scales: 2
-  image_sizes: 720,1024
+  num_scales: 3
+  image_sizes: 256,1024
   size_scaling: power
-  num_iterations: 500,300
+  num_iterations: 300,100
   iter_scaling: power
   avg_frame_window: -1
-  gram_frame_window: 3,4,3,2
-  num_frames: 72
+  gram_frame_window: 9,9,9,4
+  num_frames: 24
   content_weight: 0
-  style_weight: 10000
-  video_style_factor: 10000
+  style_weight: 1
+  video_style_factor: 10
   shift_factor: 0
   style_blend_weights: False
   style_scale: 1.0
@@ -25,7 +25,7 @@ param:
   match_histograms: avg
   temporal_smoothing: 0
   original_colors: False
-  normalize_gradients: False
+  normalize_gradients: True
   normalize_weights: True
   use_covariance: False
 model:

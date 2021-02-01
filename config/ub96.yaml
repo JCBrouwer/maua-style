@@ -29,7 +29,7 @@ model:
   gpu: 0,1
   backend: cudnn
   cudnn_autotune: True
-  multidevice_strategy: 9
+  multidevice_strategy: 5
   verbose: True
 optim:
   optimizer: lbfgs

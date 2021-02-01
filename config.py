@@ -1,7 +1,8 @@
-import re
-import yaml
-import torch
 import argparse
+import re
+
+import torch
+import yaml
 
 
 class Options(dict):
