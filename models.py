@@ -150,10 +150,10 @@ nin_dict = {
         "cccp8-1024",
     ],
     "R": [
-        "relu0",
         "relu1",
         "relu2",
         "relu3",
+        "relu4",
         "relu5",
         "relu6",
         "relu7",
@@ -244,19 +244,19 @@ def select_model(model_file, pooling):
     vgg_list = ["fcn32s", "pruning", "sod", "vgg"]
     if any(name in model_file for name in vgg_list):
         if "pruning" in model_file:
-            print("VGG-16 Architecture Detected")
+            print("Model: VGG-16")
             print("Using The Channel Pruning Model")
             cnn, layerList = VGG_PRUNED(build_sequential(channel_list["VGG-16p"], pooling)), vgg16_dict
         elif "fcn32s" in model_file:
-            print("VGG-16 Architecture Detected")
+            print("Model: VGG-16")
             print("Using the fcn32s-heavy-pascal Model")
             cnn, layerList = VGG_FCN32S(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
         elif "sod" in model_file:
-            print("VGG-16 Architecture Detected")
+            print("Model: VGG-16")
             print("Using The SOD Fintune Model")
             cnn, layerList = VGG_SOD(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
         elif "19" in model_file:
-            # print("VGG-19 Architecture Detected")
+            print("Model: VGG-19")
             if not path.exists(model_file):
                 # Download the VGG-19 model and fix the layer names
                 print("Model file not found: " + model_file)
@@ -271,7 +271,7 @@ def select_model(model_file, pooling):
                 torch.save(sd, path.join("models", "vgg19-d01eb7cb.pth"))
             cnn, layerList = VGG(build_sequential(channel_list["VGG-19"], pooling)), vgg19_dict
         elif "16" in model_file:
-            print("VGG-16 Architecture Detected")
+            print("Model: VGG-16")
             if not path.exists(model_file):
                 # Download the VGG-16 model and fix the layer names
                 print("Model file not found: " + model_file)
@@ -288,7 +288,7 @@ def select_model(model_file, pooling):
         else:
             raise ValueError("VGG architecture not recognized.")
     elif "nin" in model_file:
-        print("NIN Architecture Detected")
+        print("Model: NIN")
         if not path.exists(model_file):
             # Download the NIN model
             print("Model file not found: " + model_file)
@@ -315,7 +315,6 @@ def select_model(model_file, pooling):
 # Load the model, and configure pooling layer type
 def load_model(opt, param):
     cnn, layer_list = select_model(str(opt.model_file).lower(), opt.pooling)
-
     cnn.load_state_dict(torch.load(opt.model_file), strict=(not opt.disable_check))
     # print("Successfully loaded " + str(opt.model_file))
 
@@ -341,7 +340,7 @@ def load_model(opt, param):
 
     # HACK abuse of Options class (which is a dict) to avoid error here when temporal_weight not in img/img config
     if param.get("temporal_weight", 0) > 0:
-        temporal_mod = ContentLoss(param.temporal_weight)
+        temporal_mod = ContentLoss(param.temporal_weight, param.normalize_gradients)
         net.add_module(str(len(net)), temporal_mod)
         temporal_losses.append(temporal_mod)
 
@@ -352,13 +351,13 @@ def load_model(opt, param):
 
                 if layer_list["C"][c] in content_layers:
                     # print("Setting up content layer " + str(i) + ": " + str(layer_list["C"][c]))
-                    loss_module = ContentLoss(param.content_weight)
+                    loss_module = ContentLoss(param.content_weight, param.normalize_gradients)
                     net.add_module(str(len(net)), loss_module)
                     content_losses.append(loss_module)
 
                 if layer_list["C"][c] in style_layers:
                     # print("Setting up style layer " + str(i) + ": " + str(layer_list["C"][c]))
-                    loss_module = StyleLoss(param.style_weight, param.use_covariance)
+                    loss_module = StyleLoss(param.style_weight, param.use_covariance, param.normalize_gradients)
                     net.add_module(str(len(net)), loss_module)
                     style_losses.append(loss_module)
                 c += 1
@@ -368,14 +367,14 @@ def load_model(opt, param):
 
                 if layer_list["R"][r] in content_layers:
                     # print("Setting up content layer " + str(i) + ": " + str(layer_list["R"][r]))
-                    loss_module = ContentLoss(param.content_weight)
+                    loss_module = ContentLoss(param.content_weight, param.normalize_gradients)
                     net.add_module(str(len(net)), loss_module)
                     content_losses.append(loss_module)
                     next_content_idx += 1
 
                 if layer_list["R"][r] in style_layers:
                     # print("Setting up style layer " + str(i) + ": " + str(layer_list["R"][r]))
-                    loss_module = StyleLoss(param.style_weight, param.use_covariance)
+                    loss_module = StyleLoss(param.style_weight, param.use_covariance, param.normalize_gradients)
                     net.add_module(str(len(net)), loss_module)
                     style_losses.append(loss_module)
                     next_style_idx += 1

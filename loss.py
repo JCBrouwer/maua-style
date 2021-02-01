@@ -34,6 +34,20 @@ def R1Penalty(real_img, f):
     return r1_penalty
 
 
+# Scale gradients in the backward pass
+class ScaleGradients(torch.autograd.Function):
+    @staticmethod
+    def forward(self, input_tensor, strength):
+        self.strength = strength
+        return input_tensor
+
+    @staticmethod
+    def backward(self, grad_output):
+        grad_input = grad_output.clone()
+        grad_input = grad_input / (torch.norm(grad_input, keepdim=True) + 1e-8)
+        return grad_input * self.strength * self.strength, None
+
+
 # Divide weights by channel size
 def normalize_weights(content_losses, style_losses):
     for n, i in enumerate(content_losses):
@@ -44,21 +58,25 @@ def normalize_weights(content_losses, style_losses):
 
 # Define an nn Module to compute content loss
 class ContentLoss(nn.Module):
-    def __init__(self, strength):
+    def __init__(self, strength, normalize=False):
         super(ContentLoss, self).__init__()
         self.strength = strength
         self.crit = nn.MSELoss()
         self.mode = "None"
         self.weights = None
+        self.normalize = normalize
 
     def forward(self, input):
         if self.mode == "loss":
             if input.shape != self.target.shape:
                 return input
             if self.weights is not None:
-                self.loss = self.crit(input * self.weights, self.target) * self.strength
+                loss = self.crit(input * self.weights, self.target)
             else:
-                self.loss = self.crit(input, self.target) * self.strength
+                loss = self.crit(input, self.target)
+            if self.normalize:
+                loss = ScaleGradients.apply(loss, self.strength)
+            self.loss = loss * self.strength
         elif self.mode == "capture":
             self.target = input.detach()
         return input
@@ -77,7 +95,7 @@ class GramMatrix(nn.Module):
 
 # Define an nn Module to compute style loss
 class StyleLoss(nn.Module):
-    def __init__(self, strength, use_covariance=False):
+    def __init__(self, strength, use_covariance=False, normalize=False):
         super(StyleLoss, self).__init__()
         self.target = torch.Tensor()
         self.strength = strength
@@ -86,6 +104,7 @@ class StyleLoss(nn.Module):
         self.mode = "None"
         self.blend_weight = None
         self.use_covariance = use_covariance
+        self.normalize = normalize
 
     def forward(self, input):
         self.G = self.gram(input, self.use_covariance)
@@ -98,7 +117,10 @@ class StyleLoss(nn.Module):
             else:
                 self.target = self.target.add(self.blend_weight, self.G.detach())
         elif self.mode == "loss":
-            self.loss = self.strength * self.crit(self.G, self.target)
+            loss = self.crit(self.G, self.target)
+            if self.normalize:
+                loss = ScaleGradients.apply(loss, self.strength)
+            self.loss = loss * self.strength
         return input
 
 

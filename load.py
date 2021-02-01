@@ -17,16 +17,16 @@ def preprocess(image_name):
     rgb2bgr = T.Lambda(lambda x: x[th.LongTensor([2, 1, 0])])
     normalize = T.Normalize(mean=[103.939, 116.779, 123.68], std=[1, 1, 1])
     if image_name == "random":
-        return normalize(rgb2bgr(th.randn((3, 256, 256)) * 256)).unsqueeze(0)
+        return normalize(rgb2bgr(th.randn((3, 256, 256)) * 255)).unsqueeze(0)
     image = Image.open(image_name).convert("RGB")
-    return normalize(rgb2bgr(T.ToTensor()(image) * 256)).unsqueeze(0)
+    return normalize(rgb2bgr(T.ToTensor()(image) * 255)).unsqueeze(0)
 
 
 #  Undo the above preprocessing.
 def deprocess(output_tensor):
     normalize = T.Normalize(mean=[-103.939, -116.779, -123.68], std=[1, 1, 1])
     bgr2rgb = T.Lambda(lambda x: x[th.LongTensor([2, 1, 0])])
-    output_tensor = bgr2rgb(normalize(output_tensor.squeeze(0).float().cpu())) / 256
+    output_tensor = bgr2rgb(normalize(output_tensor.squeeze(0).float().cpu())) / 255
     output_tensor.clamp_(0, 1)
     return T.ToPILImage()(output_tensor.cpu())
 

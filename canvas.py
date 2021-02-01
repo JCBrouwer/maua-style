@@ -24,52 +24,58 @@ def get_histogram(tensor, eps):
 
 
 def match_histogram(target_tensor, source_tensor, eps=1e-2, mode="avg"):
-    if mode == "avg":
-        elementwise = True
-        random_frame = False
-    else:
-        elementwise = False
-        random_frame = True
+    backup = target_tensor.clone()
+    try:
+        if mode == "avg":
+            elementwise = True
+            random_frame = False
+        else:
+            elementwise = False
+            random_frame = True
 
-    if not isinstance(source_tensor, list):
-        source_tensor = [source_tensor]
+        if not isinstance(source_tensor, list):
+            source_tensor = [source_tensor]
 
-    output_tensor = th.zeros_like(target_tensor)
-    for source in source_tensor:
-        target = target_tensor.permute(0, 3, 2, 1)  # Function expects b,w,h,c
-        source = source.permute(0, 3, 2, 1)  # Function expects b,w,h,c
-        if elementwise:
-            source = source.mean(0).unsqueeze(0)
-        if random_frame:
-            source = source[np.random.randint(0, source.shape[0])].unsqueeze(0)
-
-        matched_tensor = th.zeros_like(target)
-        for idx in range(target.shape[0] if elementwise else 1):
-            frame = target[idx].unsqueeze(0) if elementwise else target
-            _, t, Ct = get_histogram(frame, eps)
-            mu_s, _, Cs = get_histogram(source, eps)
-
-            # PCA
-            eva_t, eve_t = th.symeig(Ct, eigenvectors=True, upper=True)
-            Et = th.sqrt(th.diagflat(eva_t))
-            Et[Et != Et] = 0  # Convert nan to 0
-            Qt = th.mm(th.mm(eve_t, Et), eve_t.T)
-
-            eva_s, eve_s = th.symeig(Cs, eigenvectors=True, upper=True)
-            Es = th.sqrt(th.diagflat(eva_s))
-            Es[Es != Es] = 0  # Convert nan to 0
-            Qs = th.mm(th.mm(eve_s, Es), eve_s.T)
-
-            ts = th.mm(th.mm(Qs, th.inverse(Qt)), t)
-
-            match = ts.reshape(*frame.permute(0, 3, 1, 2).shape).permute(0, 2, 3, 1)
-            match += mu_s
-
+        output_tensor = th.zeros_like(target_tensor)
+        for source in source_tensor:
+            target = target_tensor.permute(0, 3, 2, 1)  # Function expects b,w,h,c
+            source = source.permute(0, 3, 2, 1)  # Function expects b,w,h,c
             if elementwise:
-                matched_tensor[idx] = match
-            else:
-                matched_tensor = match
-        output_tensor += matched_tensor.permute(0, 3, 2, 1) / len(source_tensor)
+                source = source.mean(0).unsqueeze(0)
+            if random_frame:
+                source = source[np.random.randint(0, source.shape[0])].unsqueeze(0)
+
+            matched_tensor = th.zeros_like(target)
+            for idx in range(target.shape[0] if elementwise else 1):
+                frame = target[idx].unsqueeze(0) if elementwise else target
+                _, t, Ct = get_histogram(frame + 1e-3 * th.randn(size=frame.shape), eps)
+                mu_s, _, Cs = get_histogram(source + 1e-3 * th.randn(size=source.shape), eps)
+
+                # PCA
+                eva_t, eve_t = th.symeig(Ct, eigenvectors=True, upper=True)
+                Et = th.sqrt(th.diagflat(eva_t))
+                Et[Et != Et] = 0  # Convert nan to 0
+                Qt = th.mm(th.mm(eve_t, Et), eve_t.T)
+
+                eva_s, eve_s = th.symeig(Cs, eigenvectors=True, upper=True)
+                Es = th.sqrt(th.diagflat(eva_s))
+                Es[Es != Es] = 0  # Convert nan to 0
+                Qs = th.mm(th.mm(eve_s, Es), eve_s.T)
+
+                ts = th.mm(th.mm(Qs, th.inverse(Qt)), t)
+
+                match = ts.reshape(*frame.permute(0, 3, 1, 2).shape).permute(0, 2, 3, 1)
+                match += mu_s
+
+                if elementwise:
+                    matched_tensor[idx] = match
+                else:
+                    matched_tensor = match
+            output_tensor += matched_tensor.permute(0, 3, 2, 1) / len(source_tensor)
+    except RuntimeError:
+        traceback.print_exc()
+        print("Skipping histogram matching...")
+        output_tensor = backup
     return output_tensor
 
 
@@ -172,14 +178,16 @@ def img_img(opt):
         if current_size <= 1600:
             opt.model.gpu = 1
             opt.model.multidevice = False
-        else:  # if current_size <= 3000:
+        elif current_size <= 3000:
             opt.model.gpu = "0,1"
             opt.model.multidevice = True
             opt.param.tv_weight = 0
             opt.model.model_file = "../style-transfer/models/vgg16-00b39a1b.pth"
             opt.optim.optimizer = "adam"
-        # else:
-        #     opt.model.model_file = "../style-transfer/models/nin_imagenet.pth"
+        else:
+            opt.model.model_file = "../style-transfer/models/nin_imagenet.pth"
+            opt.model.style_layers = "relu1,relu3,relu5,relu7,relu9,relu11"
+            opt.model.content_layers = "relu8"
 
         opt.param.num_iterations = num_iters
         opt.optim.print_iter = num_iters // 4
@@ -202,7 +210,7 @@ def img_img(opt):
 
     disp = load.deprocess(init_image.clone())
     if opt.param.original_colors == 1:
-        disp = load.original_colors(load.deprocess(content_image.clone()), disp)
+        disp = load.original_colors(load.deprocess(content_image_big.clone()), disp)
     disp.save(str(output))
 
 

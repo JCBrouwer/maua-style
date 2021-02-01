@@ -83,7 +83,7 @@ def optimize(net, init_image, opt):
         loss.backward()
 
         if opt.optim.print_iter > 0 and i[0] % opt.optim.print_iter == 0:
-            print("Iteration " + str(i[0]) + " / " + str(opt.param.num_iterations))
+            print(f"Iteration {i[0]} / {opt.param.num_iterations}, Loss: {loss.item()}")
         if (opt.optim.save_iter > 0 and i[0] % opt.optim.save_iter == 0) or i[0] == opt.param.num_iterations:
             output_filename, file_extension = os.path.splitext(opt.output)
             if i[0] == opt.param.num_iterations:

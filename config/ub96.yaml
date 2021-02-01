@@ -6,18 +6,19 @@ input:
   init: content
   seed: -1
 param:
-  num_scales: 7
-  image_sizes: 256,512,724,1024,1448,2400,3000
-  size_scaling: power
-  num_iterations: 1000,500,500,500,250,100,100
-  iter_scaling: power
+  num_scales: 2
+  image_sizes: 500,1000,2000,3000,4000,5000,6000
+  size_scaling: linear
+  num_iterations: 100,50,50,50
+  iter_scaling: linear
   content_weight: 1
-  style_weight: 50000
+  style_weight: 100
   style_blend_weights: False
   style_scale: 1.0
   tv_weight: 0.0001
   original_colors: False
   normalize_weights: False
+  normalize_gradients: True
   use_covariance: False
 model:
   model_file: ../style-transfer/models/vgg19-d01eb7cb.pth
@@ -28,7 +29,7 @@ model:
   gpu: 0,1
   backend: cudnn
   cudnn_autotune: True
-  multidevice_strategy: 5
+  multidevice_strategy: 9
 optim:
   optimizer: lbfgs
   lbfgs_num_correction: 100
