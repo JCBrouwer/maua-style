@@ -1,3 +1,4 @@
+import re
 import yaml
 import torch
 import argparse
@@ -47,6 +48,13 @@ class Options(dict):
     __setattr__ = __setitem__
 
 
+def FilePathString(v):
+    try:
+        return re.match(".*|random|content", v).group(0)
+    except:
+        raise argparse.ArgumentTypeError("String '%s' does not match required format" % (v,))
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
 
@@ -58,7 +66,7 @@ def parse_args():
         "-style", help="Style target image", default=argparse.SUPPRESS
     )  # , default='examples/inputs/seated-nude.jpg')
     parser.add_argument("-output", default=argparse.SUPPRESS)  # , default='out.png')
-    parser.add_argument("-init", choices=["random", "content", "*"], default=argparse.SUPPRESS)  # , default='random')
+    parser.add_argument("-init", type=FilePathString, default=argparse.SUPPRESS)  # , default='random')
     parser.add_argument("-style_blend_weights", default=argparse.SUPPRESS)  # , default=None)
     parser.add_argument("-style_scale", type=float, default=argparse.SUPPRESS)  # , default=1.0)
     parser.add_argument(
@@ -73,7 +81,11 @@ def parse_args():
     parser.add_argument("-temporal_weight", type=float, default=argparse.SUPPRESS)  # , default=5e0)
     parser.add_argument("-style_weight", type=float, default=argparse.SUPPRESS)  # , default=1e2)
     parser.add_argument("-normalize_weights", action="store_true", default=argparse.SUPPRESS)
+    parser.add_argument("-normalize_gradients", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("-tv_weight", type=float, default=argparse.SUPPRESS)  # , default=1e-3)
+    parser.add_argument("-num_frames", type=int, default=argparse.SUPPRESS)  # , default=1e-3)
+    parser.add_argument("-avg_frame_window", type=int, default=argparse.SUPPRESS)  # , default=1e-3)
+    parser.add_argument("-gram_frame_window", type=int, default=argparse.SUPPRESS)  # , default=1e-3)
     parser.add_argument("-use_covariance", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("-pooling", choices=["avg", "max"], default=argparse.SUPPRESS)  # , default='max')
     parser.add_argument("-content_layers", help="layers for content", default=argparse.SUPPRESS)  # , default='relu4_2')

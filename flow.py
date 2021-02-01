@@ -1,10 +1,46 @@
 import scipy, time
 import numpy as np
 from PIL import Image
+from utils import info
 
 
-def info(x):
-    print(x.min(), x.mean(), x.max(), x.shape)
+def get_flow_model(opt):
+    if not opt.model.gpu == "cpu":
+        import unflow
+
+        model = unflow.UnFlow(opt.flow).cuda().eval()
+        th.backends.cudnn.enabled = opt.model.backend == "cudnn"
+
+        def process(im1, im2):
+            tens1 = th.FloatTensor(im1[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0)
+            tens2 = th.FloatTensor(im2[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0)
+
+            assert tens1.size(1) == tens2.size(1)
+            assert tens1.size(2) == tens2.size(2)
+
+            h, w = tens1.size()[1], tens1.size(2)
+
+            prep1 = tens1.cuda().view(1, 3, h, w)
+            prep2 = tens2.cuda().view(1, 3, h, w)
+
+            evenW = int(math.floor(math.ceil(w / 64.0) * 64.0))
+            evenH = int(math.floor(math.ceil(h / 64.0) * 64.0))
+
+            prep1 = F.interpolate(input=prep1, size=(evenH, evenW), mode="bilinear", align_corners=False)
+            prep2 = F.interpolate(input=prep2, size=(evenH, evenW), mode="bilinear", align_corners=False)
+
+            output = F.interpolate(input=model(prep1, prep2), size=(h, w), mode="bilinear", align_corners=False)
+            output[:, 0, :, :] *= float(evenW) / float(w)
+            output[:, 1, :, :] *= float(evenH) / float(h)
+            output = output[0, :, :, :].cpu().numpy().transpose(1, 2, 0)
+            return output
+
+        return process
+    else:
+        from thoth.deepmatching import deepmatching
+        from thoth.deepflow2 import deepflow2
+
+        return lambda im1, im2: deepflow2(im1, im2, deepmatching(im1, im2), "-%s" % (opt.flow.model_type_cpu))
 
 
 def check_consistency(flow1, flow2):

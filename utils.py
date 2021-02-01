@@ -69,53 +69,59 @@ def get_histogram(tensor, eps):
     return mu_h, h, Ch
 
 
-def match_histogram(target_tensor, source_tensor, eps=1e-2, mode="rand"):
-    if mode is "avg":
-        elementwise = True
-        random_frame = False
-    else:
-        elementwise = False
-        random_frame = True
+def match_histogram(target_tensor, source_tensor, eps=1e-2, mode="avg"):
+    backup = target_tensor.clone()
+    try:
+        if mode == "avg":
+            elementwise = True
+            random_frame = False
+        else:
+            elementwise = False
+            random_frame = True
 
-    if not isinstance(source_tensor, list):
-        source_tensor = [source_tensor]
+        if not isinstance(source_tensor, list):
+            source_tensor = [source_tensor]
 
-    output_tensor = th.zeros_like(target_tensor)
-    for source in source_tensor:
-        target = target_tensor.permute(0, 3, 2, 1)  # Function expects b,w,h,c
-        source = source.permute(0, 3, 2, 1)  # Function expects b,w,h,c
-        if elementwise:
-            source = source.mean(0).unsqueeze(0)
-        if random_frame:
-            source = source[np.random.randint(0, source.shape[0])].unsqueeze(0)
-
-        matched_tensor = th.zeros_like(target)
-        for idx in range(target.shape[0] if elementwise else 1):
-            frame = target[idx].unsqueeze(0) if elementwise else target
-            _, t, Ct = get_histogram(frame, eps)
-            mu_s, _, Cs = get_histogram(source, eps)
-
-            # PCA
-            eva_t, eve_t = th.symeig(Ct, eigenvectors=True, upper=True)
-            Et = th.sqrt(th.diagflat(eva_t))
-            Et[Et != Et] = 0  # Convert nan to 0
-            Qt = th.mm(th.mm(eve_t, Et), eve_t.T)
-
-            eva_s, eve_s = th.symeig(Cs, eigenvectors=True, upper=True)
-            Es = th.sqrt(th.diagflat(eva_s))
-            Es[Es != Es] = 0  # Convert nan to 0
-            Qs = th.mm(th.mm(eve_s, Es), eve_s.T)
-
-            ts = th.mm(th.mm(Qs, th.inverse(Qt)), t)
-
-            match = ts.reshape(*frame.permute(0, 3, 1, 2).shape).permute(0, 2, 3, 1)
-            match += mu_s
-
+        output_tensor = th.zeros_like(target_tensor)
+        for source in source_tensor:
+            target = target_tensor.permute(0, 3, 2, 1)  # Function expects b,w,h,c
+            source = source.permute(0, 3, 2, 1)  # Function expects b,w,h,c
             if elementwise:
-                matched_tensor[idx] = match
-            else:
-                matched_tensor = match
-        output_tensor += matched_tensor.permute(0, 3, 2, 1) / len(source_tensor)
+                source = source.mean(0).unsqueeze(0)
+            if random_frame:
+                source = source[np.random.randint(0, source.shape[0])].unsqueeze(0)
+
+            matched_tensor = th.zeros_like(target)
+            for idx in range(target.shape[0] if elementwise else 1):
+                frame = target[idx].unsqueeze(0) if elementwise else target
+                _, t, Ct = get_histogram(frame + 1e-3 * th.randn(size=frame.shape), eps)
+                mu_s, _, Cs = get_histogram(source + 1e-3 * th.randn(size=source.shape), eps)
+
+                # PCA
+                eva_t, eve_t = th.symeig(Ct, eigenvectors=True, upper=True)
+                Et = th.sqrt(th.diagflat(eva_t))
+                Et[Et != Et] = 0  # Convert nan to 0
+                Qt = th.mm(th.mm(eve_t, Et), eve_t.T)
+
+                eva_s, eve_s = th.symeig(Cs, eigenvectors=True, upper=True)
+                Es = th.sqrt(th.diagflat(eva_s))
+                Es[Es != Es] = 0  # Convert nan to 0
+                Qs = th.mm(th.mm(eve_s, Es), eve_s.T)
+
+                ts = th.mm(th.mm(Qs, th.inverse(Qt)), t)
+
+                match = ts.reshape(*frame.permute(0, 3, 1, 2).shape).permute(0, 2, 3, 1)
+                match += mu_s
+
+                if elementwise:
+                    matched_tensor[idx] = match
+                else:
+                    matched_tensor = match
+            output_tensor += matched_tensor.permute(0, 3, 2, 1) / len(source_tensor)
+    except RuntimeError:
+        traceback.print_exc()
+        print("Skipping histogram matching...")
+        output_tensor = backup
     return output_tensor
 
 
@@ -138,4 +144,4 @@ def determine_scaling(opt):
 
     image_sizes = opt_to_ints(opt.image_sizes, opt.size_scaling, opt.num_scales)
     num_iters = opt_to_ints(opt.num_iterations, opt.iter_scaling, opt.num_scales)
-    return image_sizes, num_iters
+    return image_sizes, reversed(num_iters)

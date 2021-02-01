@@ -3,7 +3,7 @@ import torch.nn as nn
 from loss import *
 import copy
 from os import path
-from sys import version_info
+import urllib.request
 from collections import OrderedDict
 from torch.utils.model_zoo import load_url
 import style
@@ -240,47 +240,52 @@ vgg19_dict = {
 }
 
 
-def select_model(model_file, pooling):
+def select_model(model_file, pooling, verbose):
     vgg_list = ["fcn32s", "pruning", "sod", "vgg"]
     if any(name in model_file for name in vgg_list):
         if "pruning" in model_file:
-            print("Model: VGG-16")
-            print("Using The Channel Pruning Model")
+            if verbose:
+                print("VGG-16 Architecture Detected")
+                print("Using The Channel Pruning Model")
             cnn, layerList = VGG_PRUNED(build_sequential(channel_list["VGG-16p"], pooling)), vgg16_dict
         elif "fcn32s" in model_file:
-            print("Model: VGG-16")
-            print("Using the fcn32s-heavy-pascal Model")
+            if verbose:
+                print("VGG-16 Architecture Detected")
+                print("Using the fcn32s-heavy-pascal Model")
             cnn, layerList = VGG_FCN32S(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
         elif "sod" in model_file:
-            print("Model: VGG-16")
-            print("Using The SOD Fintune Model")
+            if verbose:
+                print("VGG-16 Architecture Detected")
+                print("Using The SOD Fintune Model")
             cnn, layerList = VGG_SOD(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
         elif "19" in model_file:
-            print("Model: VGG-19")
+            if verbose:
+                print("VGG-19 Architecture Detected")
             if not path.exists(model_file):
                 # Download the VGG-19 model and fix the layer names
                 print("Model file not found: " + model_file)
                 sd = load_url("https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg19-d01eb7cb.pth")
                 map = {
-                    "classifier.1.weight": u"classifier.0.weight",
-                    "classifier.1.bias": u"classifier.0.bias",
-                    "classifier.4.weight": u"classifier.3.weight",
-                    "classifier.4.bias": u"classifier.3.bias",
+                    "classifier.1.weight": "classifier.0.weight",
+                    "classifier.1.bias": "classifier.0.bias",
+                    "classifier.4.weight": "classifier.3.weight",
+                    "classifier.4.bias": "classifier.3.bias",
                 }
                 sd = OrderedDict([(map[k] if k in map else k, v) for k, v in sd.items()])
                 torch.save(sd, path.join("models", "vgg19-d01eb7cb.pth"))
             cnn, layerList = VGG(build_sequential(channel_list["VGG-19"], pooling)), vgg19_dict
         elif "16" in model_file:
-            print("Model: VGG-16")
+            if verbose:
+                print("VGG-16 Architecture Detected")
             if not path.exists(model_file):
                 # Download the VGG-16 model and fix the layer names
                 print("Model file not found: " + model_file)
                 sd = load_url("https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg16-00b39a1b.pth")
                 map = {
-                    "classifier.1.weight": u"classifier.0.weight",
-                    "classifier.1.bias": u"classifier.0.bias",
-                    "classifier.4.weight": u"classifier.3.weight",
-                    "classifier.4.bias": u"classifier.3.bias",
+                    "classifier.1.weight": "classifier.0.weight",
+                    "classifier.1.bias": "classifier.0.bias",
+                    "classifier.4.weight": "classifier.3.weight",
+                    "classifier.4.bias": "classifier.3.bias",
                 }
                 sd = OrderedDict([(map[k] if k in map else k, v) for k, v in sd.items()])
                 torch.save(sd, path.join("models", "vgg16-00b39a1b.pth"))
@@ -288,24 +293,15 @@ def select_model(model_file, pooling):
         else:
             raise ValueError("VGG architecture not recognized.")
     elif "nin" in model_file:
-        print("Model: NIN")
+        if verbose:
+            print("NIN Architecture Detected")
         if not path.exists(model_file):
             # Download the NIN model
             print("Model file not found: " + model_file)
-            if version_info[0] < 3:
-                import urllib
-
-                urllib.URLopener().retrieve(
-                    "https://raw.githubusercontent.com/ProGamerGov/pytorch-nin/master/nin_imagenet.pth",
-                    path.join("models", "nin_imagenet.pth"),
-                )
-            else:
-                import urllib.request
-
-                urllib.request.urlretrieve(
-                    "https://raw.githubusercontent.com/ProGamerGov/pytorch-nin/master/nin_imagenet.pth",
-                    path.join("models", "nin_imagenet.pth"),
-                )
+            urllib.request.urlretrieve(
+                "https://raw.githubusercontent.com/ProGamerGov/pytorch-nin/master/nin_imagenet.pth",
+                path.join("models", "nin_imagenet.pth"),
+            )
         cnn, layerList = NIN(pooling), nin_dict
     else:
         raise ValueError("Model architecture not recognized.")
@@ -314,9 +310,11 @@ def select_model(model_file, pooling):
 
 # Load the model, and configure pooling layer type
 def load_model(opt, param):
-    cnn, layer_list = select_model(str(opt.model_file).lower(), opt.pooling)
+    cnn, layer_list = select_model(str(opt.model_file).lower(), opt.pooling, opt.verbose)
+
     cnn.load_state_dict(torch.load(opt.model_file), strict=(not opt.disable_check))
-    # print("Successfully loaded " + str(opt.model_file))
+    if opt.verbose:
+        print("Successfully loaded " + str(opt.model_file))
 
     # Maybe convert the model to cuda now, to avoid later issues
     if "c" not in str(opt.gpu).lower() or "c" not in str(opt.gpu[0]).lower():
@@ -335,12 +333,13 @@ def load_model(opt, param):
 
     if param.tv_weight > 0:
         tv_mod = TVLoss(param.tv_weight)
+        tv_mod.name = f"tv {len(net)}"
         net.add_module(str(len(net)), tv_mod)
         tv_losses.append(tv_mod)
 
-    # HACK abuse of Options class (which is a dict) to avoid error here when temporal_weight not in img/img config
     if param.get("temporal_weight", 0) > 0:
         temporal_mod = ContentLoss(param.temporal_weight, param.normalize_gradients)
+        temporal_mod.name = f"temporal {len(net)}"
         net.add_module(str(len(net)), temporal_mod)
         temporal_losses.append(temporal_mod)
 
@@ -350,14 +349,24 @@ def load_model(opt, param):
                 net.add_module(str(len(net)), layer)
 
                 if layer_list["C"][c] in content_layers:
-                    # print("Setting up content layer " + str(i) + ": " + str(layer_list["C"][c]))
+                    if opt.verbose:
+                        print("Setting up content layer " + str(i) + ": " + str(layer_list["C"][c]))
                     loss_module = ContentLoss(param.content_weight, param.normalize_gradients)
+                    loss_module.name = f"cont {len(net)}"
                     net.add_module(str(len(net)), loss_module)
                     content_losses.append(loss_module)
 
                 if layer_list["C"][c] in style_layers:
-                    # print("Setting up style layer " + str(i) + ": " + str(layer_list["C"][c]))
-                    loss_module = StyleLoss(param.style_weight, param.use_covariance, param.normalize_gradients)
+                    if opt.verbose:
+                        print("Setting up style layer " + str(i) + ": " + str(layer_list["C"][c]))
+                    loss_module = StyleLoss(
+                        param.style_weight,
+                        param.use_covariance,
+                        param.normalize_gradients,
+                        video_style_factor=param.get("video_style_factor", 0),
+                        shift_factor=param.get("shift_factor", 0),
+                    )
+                    loss_module.name = f"style {len(net)}"
                     net.add_module(str(len(net)), loss_module)
                     style_losses.append(loss_module)
                 c += 1
@@ -366,15 +375,25 @@ def load_model(opt, param):
                 net.add_module(str(len(net)), layer)
 
                 if layer_list["R"][r] in content_layers:
-                    # print("Setting up content layer " + str(i) + ": " + str(layer_list["R"][r]))
+                    if opt.verbose:
+                        print("Setting up content layer " + str(i) + ": " + str(layer_list["R"][r]))
                     loss_module = ContentLoss(param.content_weight, param.normalize_gradients)
+                    loss_module.name = f"cont {len(net)}"
                     net.add_module(str(len(net)), loss_module)
                     content_losses.append(loss_module)
                     next_content_idx += 1
 
                 if layer_list["R"][r] in style_layers:
-                    # print("Setting up style layer " + str(i) + ": " + str(layer_list["R"][r]))
-                    loss_module = StyleLoss(param.style_weight, param.use_covariance, param.normalize_gradients)
+                    if opt.verbose:
+                        print("Setting up style layer " + str(i) + ": " + str(layer_list["R"][r]))
+                    loss_module = StyleLoss(
+                        param.style_weight,
+                        param.use_covariance,
+                        param.normalize_gradients,
+                        video_style_factor=param.get("video_style_factor", 0),
+                        shift_factor=param.get("shift_factor", 0),
+                    )
+                    loss_module.name = f"style {len(net)}"
                     net.add_module(str(len(net)), loss_module)
                     style_losses.append(loss_module)
                     next_style_idx += 1
@@ -390,21 +409,18 @@ def load_model(opt, param):
     for param in net.parameters():
         param.requires_grad = False
 
+    # monkey patch our losses onto the network for easy access
     net.content_losses = content_losses
     net.style_losses = style_losses
     net.tv_losses = tv_losses
     net.temporal_losses = temporal_losses
-    net.set_style_targets = MethodType(style.set_style_targets, net)
-    net.set_content_targets = MethodType(style.set_content_targets, net)
-    net.set_temporal_targets = MethodType(style.set_temporal_targets, net)
-    net.optimize = MethodType(style.optimize, net)
 
-    return net
+    return net, content_losses + style_losses + tv_losses + temporal_losses
 
 
 class NewModelParallel(nn.Module):
     def __init__(self, net, device_ids, device_splits):
-        super(ModelParallel, self).__init__()
+        super(NewModelParallel, self).__init__()
         self.device_list = self.name_devices(device_ids.split(","))
         self.chunks = self.chunks_to_devices(self.split_net(net, device_splits.split(",")))
 
@@ -454,6 +470,9 @@ class ModelParallel(nn.Module):
         super(ModelParallel, self).__init__()
         self.chunks = chunks
         self.device_list = device_list
+
+    def __str__(self):
+        return "".join([f"device {d}:\n{c.__str__}\n" for d, c in zip(self.device_list, self.chunks)])
 
     def c(self, input, i):
         if input.type() == "torch.FloatTensor" and "cuda" in self.device_list[i]:

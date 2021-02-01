@@ -1,23 +1,29 @@
-output_dir: /home/hans/datasets/cyphis/recomb/
-transfer_type: 'img_img'
+output_dir: /home/hans/neurout/maua-style
+transfer_type: 'img_vid'
 pbar: False
 input:
   content: random
-  style:
-  init: content
-  seed: 12274069
+  style: 'examples/ground_truth_sea_2.gif'
+  init: random
+  seed: -1
 param:
-  num_scales: 13
-  image_sizes: 300,1500
-  size_scaling: linear
-  num_iterations: 50,250
+  num_scales: 2
+  image_sizes: 720,1024
+  size_scaling: power
+  num_iterations: 500,300
   iter_scaling: power
+  avg_frame_window: -1
+  gram_frame_window: 3,4,3,2
+  num_frames: 72
   content_weight: 0
-  style_weight: 50000
+  style_weight: 10000
+  video_style_factor: 10000
+  shift_factor: 0
   style_blend_weights: False
   style_scale: 1.0
   tv_weight: 0.0001
   match_histograms: avg
+  temporal_smoothing: 0
   original_colors: False
   normalize_gradients: False
   normalize_weights: True
@@ -28,16 +34,21 @@ model:
   pooling: max
   content_layers: relu4_2
   style_layers: relu1_1,relu2_1,relu3_1,relu4_1,relu5_1
-  gpu: 0
+  gpu: 1
   backend: cudnn
   cudnn_autotune: True
+  multidevice_strategy: 6
   verbose: False
-  multidevice_strategy: 7
 optim:
   optimizer: lbfgs
   lbfgs_num_correction: 100
   lbfgs_tolerance_change: -1 #1e-5
   lbfgs_tolerance_grad: -1 #1e-7
   learning_rate: 1
-  print_iter: -1
-  save_iter: -1
+  save_iter: 1000
+ffmpeg:
+  vcodec: hevc_nvenc
+  c:v: hevc_nvenc
+  preset: slow
+  b:v: 20M
+  fps: 18

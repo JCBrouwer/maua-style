@@ -1,25 +1,31 @@
-import os
 import glob
-import load
-import json
-import torch
-import config
-import canvas
-import models
-import pathos
-import imageio
 import itertools
+import json
+import os
+import random
+import sys
+from itertools import combinations
+
+import imageio
+import numpy as np
+import pathos
 import PIL.Image
 import scipy.stats
-import numpy as np
-from tqdm import tqdm
+import torch
 from sklearn.decomposition import PCA
+from tqdm import tqdm
+
+import canvas
+import config
+import load
+import models
+from utils import *
 
 dataset_name = "cyphis"
 dataset_folder = f"/home/hans/datasets/{dataset_name}"
 
 images = []
-for img_file in glob.glob(dataset_folder + "/all/*"):
+for img_file in glob.glob(dataset_folder + "/all/train/*"):
     images.append(img_file)
 
 
@@ -48,13 +54,12 @@ if not os.path.exists(f"{dataset_folder}/dists.npy"):
             if (hist1 == hist2).all():
                 dists[i, j] = np.infty
                 continue
-            # dists[i, j] = scipy.stats.wasserstein_distance(hist1.flatten(), hist2.flatten())
             dists[i, j] = chi2_distance(hist1.flatten(), hist2.flatten())
     np.save(f"{dataset_folder}/dists.npy", dists)
 else:
     dists = np.load(f"{dataset_folder}/dists.npy")
 
-top_n = 4
+top_n = 3
 best_indices = np.argpartition(dists, top_n, axis=1)[:, :top_n]
 closest = [[images[j] for j in best_indices[i]] for i in range(len(images))]
 
@@ -65,7 +70,6 @@ def generate_grids():
         grid = PIL.Image.new("RGB", (900, 900))
 
         im = PIL.Image.open(images[ii])
-        styles = load.process_style_images(opt)
         im.thumbnail((300, 300))
         grid.paste(im, (0, 0))
 
