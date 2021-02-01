@@ -1,26 +1,29 @@
 output_dir: /home/hans/neurout/maua-style
 transfer_type: 'vid_img'
+pbar: False
+verbose: False
 input:
   content:
   style:
   init: random # [prev_warp, random]
   seed: -1
 param:
-  num_scales: 2
+  num_scales: 4
   passes_per_scale: 4
-  image_sizes: 256,384,512,600,724,850,1024 #,1448,1920
+  image_sizes: 256,1024 #,1448,1920
   size_scaling: power # [linear]
-  num_iterations: 1000,400,400,400,400,300,200 #,100,50
+  num_iterations: 400,100 #,100,50
   iter_scaling: power
-  content_weight: 500
-  temporal_weight: 15000
+  content_weight: 1
+  temporal_weight: 30
   blend_weight: 0.25
-  style_weight: 50000
+  style_weight: 100
   style_blend_weights: False
   style_scale: 1.0
   tv_weight: 0.0001
   original_colors: False
   normalize_weights: False
+  normalize_gradients: True
   use_covariance: False
 model:
   model_file: ../style-transfer/models/vgg19-d01eb7cb.pth
@@ -31,10 +34,13 @@ model:
   gpu: 0,1
   backend: cudnn
   cudnn_autotune: True
-  multidevice_strategy: 7
+  multidevice_strategy: 5
+  verbose: False
 optim:
   optimizer: lbfgs
   lbfgs_num_correction: 100
+  lbfgs_tolerance_change: -1 #1e-5
+  lbfgs_tolerance_grad: -1 #1e-7
   learning_rate: 1
   print_iter: 0
   save_iter: 0
@@ -45,12 +51,10 @@ flow:
   model_cpu:  deepflow2
   model_type_cpu: sintel
 ffmpeg:
-  framerate: 30
+  framerate: 18
+  vcodec: hevc_nvenc
+  c:v: hevc_nvenc
+  preset: slow
+  b:v: 20M
   pix_fmt: yuv420p
-  crf: 20
-# ffmpeg:
-#   framerate: 10
-#   vcodec: hevc_nvenc
-#   c:v: hevc_nvenc
-#   preset: slow
-#   b:v: 20M
+

@@ -26,7 +26,7 @@ param:
   temporal_smoothing: 0
   original_colors: False
   normalize_gradients: True
-  normalize_weights: True
+  normalize_weights: False
   use_covariance: False
 model:
   model_file: ../style-transfer/models/vgg19-d01eb7cb.pth

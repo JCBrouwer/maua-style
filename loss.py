@@ -43,6 +43,8 @@ class ContentLoss(nn.Module):
     def forward(self, input):
         if self.mode == "none" or (input.shape[1:] != self.target.shape[1:] and self.target.nelement() != 0):
             return input
+        if "temporal" in self.name and self.target.shape[0] == 0 and self.mode == "loss":
+            return input
 
         self.loss = 0
         for idx in range(input.shape[0]):
@@ -142,6 +144,7 @@ class StyleLoss(nn.Module):
             gram = self.gram(input[idx].unsqueeze(0), use_covariance=self.use_covariance) / input[idx].nelement()
 
             if self.mode == "capture":
+                self.loss = 0
                 if self.target.nelement() == 0:
                     self.target = self.blend_weight * gram.detach() / input.shape[0]
                 else:
@@ -165,6 +168,7 @@ class StyleLoss(nn.Module):
         gram = self.gram(input, use_covariance=self.use_covariance) / input.nelement()
 
         if self.mode == "capture":
+            self.loss = 0
             if self.video_target.nelement() == 0:
                 self.video_target = self.blend_weight * gram.detach()
             else:

@@ -167,6 +167,15 @@ def vid_img(opt):
         os.makedirs(output_dir + "/" + str(current_size), exist_ok=True)
         content_scale = current_size / max(*content_size)
 
+        # scale style videos
+        style_images = []
+        content_area = content_size[0] * content_size[1]
+        for img in style_images_big:
+            style_scale = math.sqrt(content_area / (img.size(3) * img.size(2))) * opt.param.style_scale
+            style_images.append(
+                F.interpolate(th.clone(img), scale_factor=style_scale, mode="bilinear", align_corners=False)
+            )
+
         if current_size <= 1024:
             opt.model.gpu = 0
             opt.model.multidevice = False
@@ -174,11 +183,11 @@ def vid_img(opt):
             opt.model.gpu = "0,1"
             opt.model.multidevice = True
             opt.param.tv_weight = 0
-        net = models.load_model(opt.model, opt.param)
-        net.set_style_targets(style_images_big, content_scale * content_size, opt)
+        net, losses = models.load_model(opt.model, opt.param)
+        # style.set_style_targets(net, style_images, opt)
 
         for pass_n in range(opt.param.passes_per_scale):
-            init_image = None
+            pastiche = None
             for (prev_frame, this_frame) in zip(frames, frames[1:] + frames[:1]):
                 # TODO add update_style() function to support changing styles per frame
                 opt.output = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n + 1, name(this_frame))
@@ -196,34 +205,34 @@ def vid_img(opt):
                     ),
                 ]
                 content_frames = [match_histogram(frame, style_images_big[0]) for frame in content_frames]
-                net.set_content_targets(content_frames[1], opt)
+                # style.set_content_targets(net, content_frames[1], opt)
 
                 # Initialize the image
                 # TODO make sure initialization correct even when continuing half way through video stylization
                 if size_n == 0 and pass_n == 0:
                     if opt.input.init == "random":
-                        init_image = th.randn(content_frames[1].size()).mul(0.001)
+                        pastiche = th.randn(content_frames[1].size()).mul(0.001)
                     elif opt.input.init == "prev_warp":
                         flo_file = "%s/flow/forward_%s_%s.flo" % (output_dir, name(prev_frame), name(this_frame))
                         flow_map = load.flow_warp_map(flo_file)
-                        if init_image is None:
-                            init_image = content_frames[0]
-                        init_image = F.grid_sample(init_image, flow_map, padding_mode="border")
+                        if pastiche is None:
+                            pastiche = content_frames[0]
+                        pastiche = F.grid_sample(pastiche, flow_map, padding_mode="border")
                     else:
-                        init_image = content_frames[1].clone()
+                        pastiche = content_frames[1].clone()
                 else:
                     if pass_n == 0:
                         # load images from last pass of previous size
-                        if init_image is None:
+                        if pastiche is None:
                             ifile = "%s/%s/%s_%s.png" % (
                                 output_dir,
                                 prev_size,
                                 opt.param.passes_per_scale,
                                 name(prev_frame),
                             )
-                            init_image = load.preprocess(ifile)
-                            init_image = F.interpolate(
-                                init_image, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
+                            pastiche = load.preprocess(ifile)
+                            pastiche = F.interpolate(
+                                pastiche, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
                             )
                         bfile = "%s/%s/%s_%s.png" % (
                             output_dir,
@@ -237,9 +246,9 @@ def vid_img(opt):
                         )
                     else:
                         # load images from previous pass of current size
-                        if init_image is None:
+                        if pastiche is None:
                             ifile = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n, name(prev_frame))
-                            init_image = load.preprocess(ifile)
+                            pastiche = load.preprocess(ifile)
                         bfile = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n, name(this_frame))
                         blend_image = load.preprocess(bfile)
 
@@ -247,30 +256,30 @@ def vid_img(opt):
                     flo_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.flo"
                     flow_map = load.flow_warp_map(flo_file)
                     flow_map = F.interpolate(
-                        flow_map.permute(0, 3, 1, 2), size=init_image.size()[2:], mode="bilinear"
+                        flow_map.permute(0, 3, 1, 2), size=pastiche.size()[2:], mode="bilinear"
                     ).permute(0, 2, 3, 1)
 
-                    warp_image = F.grid_sample(init_image, flow_map, padding_mode="border")
+                    warp_image = F.grid_sample(pastiche, flow_map, padding_mode="border")
 
                     flow_weight_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.png"
                     reliable_flow = load.reliable_flow_weighting(flow_weight_file)
                     reliable_flow = F.interpolate(
-                        reliable_flow, size=init_image.size()[2:], mode="bilinear", align_corners=False
+                        reliable_flow, size=pastiche.size()[2:], mode="bilinear", align_corners=False
                     )
 
-                    net.set_temporal_targets(warp_image, warp_weights=reliable_flow, opt=opt)
+                    style.set_temporal_targets(net, warp_image, warp_weights=reliable_flow, opt=opt)
 
-                    blend_init_image = (1 - opt.param.blend_weight) * blend_image + opt.param.blend_weight * init_image
-                    warp_blend_init_image = F.grid_sample(blend_init_image, flow_map, padding_mode="border")
-                    init_image = warp_blend_init_image
+                    blend_pastiche = (1 - opt.param.blend_weight) * blend_image + opt.param.blend_weight * pastiche
+                    warp_blend_pastiche = F.grid_sample(blend_pastiche, flow_map, padding_mode="border")
+                    pastiche = warp_blend_pastiche
 
                 output_image = style.optimize(
-                    content_frames, style_images_big, init_image, num_iters // opt.param.passes_per_scale, opt
+                    content_frames[1], style_images, pastiche, num_iters // opt.param.passes_per_scale, opt, net, losses
                 )
 
-                init_image = match_histogram(output_image.detach().cpu(), style_images_big[0])
+                pastiche = match_histogram(output_image.detach().cpu(), style_images_big[0])
 
-                disp = load.deprocess(init_image.clone())
+                disp = load.deprocess(pastiche.clone())
                 if opt.param.original_colors == 1:
                     disp = load.original_colors(load.deprocess(content_frames[1].clone()), disp)
                 disp.save(str(opt.output))
@@ -286,12 +295,12 @@ def vid_img(opt):
         del net
         th.cuda.empty_cache()
 
-    ffmpeg.input("{output_dir}/{current_size}/{pass_n}_%05d.png").output(
+    ffmpeg.input(f"{output_dir}/{current_size}/{pass_n}_%05d.png").output(
         opt.output, **opt.ffmpeg
     ).overwrite_output().run()
 
 
-opt = load_config("config/stylevid.yaml")
+opt = load_config("config/vid-ub94.yaml")
 opt.output = f"{opt.output_dir}/{name(opt.input.content)}_{'_'.join([name(s) for s in opt.input.style.split(',')])}"
 if opt.transfer_type == "img_img":
     img_img(opt)

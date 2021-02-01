@@ -89,7 +89,7 @@ def set_style_video_targets(net, style_videos, opt):
         j.mode = "none"
 
 
-def optimize(content, styles, init, num_iters, opt):
+def optimize(content, styles, init, num_iters, opt, net=None, losses=None):
     if init.numel() <= 5 * 1664 * 1664 * 3:
         opt.model.gpu = 0
         opt.model.multidevice = False
@@ -104,7 +104,7 @@ def optimize(content, styles, init, num_iters, opt):
         opt.model.style_layers = "relu1,relu3,relu5,relu7,relu9,relu11"
         opt.model.content_layers = "relu8"
     opt.param.num_iterations = num_iters
-    opt.optim.print_iter = num_iters // 4
+    # opt.optim.print_iter = num_iters // 4
 
     # TODO make work for spatial tiling as well
     if "_vid" in opt.transfer_type:
@@ -121,19 +121,20 @@ def optimize(content, styles, init, num_iters, opt):
         ]
     else:
         windows = [[0]] * len(styles)
-    print(windows)
+    # print(windows)
 
-    net, losses = models.load_model(opt.model, opt.param)
+    if net is None or losses is None:
+        net, losses = models.load_model(opt.model, opt.param)
 
     if opt.pbar:
         PBAR.reset()
         PBAR.total = len(windows[0]) * num_iters
         PBAR.refresh()
-    else:
-        line = ""
-        for mod in losses:
-            line += f"{mod.name:<10s}"
-        print(line)
+    # else:
+    #     line = ""
+    #     for mod in losses:
+    #         line += f"{mod.name:<10s}"
+    #     print(line)
 
     set_content_targets(net, content, opt)
 
@@ -208,6 +209,8 @@ def optimize(content, styles, init, num_iters, opt):
 
             total_loss = 0
             for idx, mod in enumerate(losses):
+                if mod.loss == 0:
+                    continue
                 log_losses[0][idx] += mod.loss.detach().cpu().item()
                 total_loss += mod.loss.to(opt.model.backward_device)
 
@@ -235,23 +238,14 @@ def optimize(content, styles, init, num_iters, opt):
                     (w * num_iters) + i[0] if not (w * num_iters) + i[0] == len(windows[0]) * num_iters else None,
                     pastiche.size(3),
                 )
-                # for s, style in enumerate(current_styles):
-                #     load.save_tensor_to_file(
-                #         style.detach().cpu(),
-                #         opt,
-                #         (w * num_iters) + i[0]
-                #         if not (w * num_iters) + i[0] == len(windows[0]) * num_iters
-                #         else None,
-                #         f"style_{s}_{pastiche.size(3)}",
-                #     )
 
-            if not opt.pbar:
-                if i[0] % (num_iters // 8) == 0:
-                    line = ""
-                    for ll in log_losses[0]:
-                        line += f"{f'{ll / (num_iters // 8):.2E}':<10s}"
-                    print(line)
-                    log_losses[0] = [0] * len(losses)
+            # if not opt.pbar:
+            #     if i[0] % (num_iters // 8) == 0:
+            #         line = ""
+            #         for ll in log_losses[0]:
+            #             line += f"{f'{ll / (num_iters // 8):.2E}':<10s}"
+            #         print(line)
+            #         log_losses[0] = [0] * len(losses)
 
             return total_loss
 
