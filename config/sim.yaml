@@ -10,7 +10,7 @@ param:
   num_scales: 13
   image_sizes: 300,1500
   size_scaling: linear
-  num_iterations: 50,250
+  num_iters: 50,250
   iter_scaling: power
   content_weight: 0
   style_weight: 50000

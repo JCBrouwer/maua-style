@@ -12,7 +12,7 @@ param:
   passes_per_scale: 4
   image_sizes: 256,1024 #,1448,1920
   size_scaling: power # [linear]
-  num_iterations: 400,100 #,100,50
+  num_iters: 400,100 #,100,50
   iter_scaling: power
   content_weight: 1
   temporal_weight: 30

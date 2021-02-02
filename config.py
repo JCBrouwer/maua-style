@@ -1,217 +1,154 @@
 import argparse
-import re
+import json
+import uuid
 
 import torch
-import yaml
+
+from utils import name
 
 
-class Options(dict):
-    """ Nested Attribute Dictionary
-
-    A class to convert a nested Dictionary into an object with key-values
-    accessibly using attribute notation (Options.attribute) in addition to
-    key notation (Dict["key"]). This class recursively sets Dicts to objects,
-    allowing you to recurse down nested dicts (like: Options.attr.attr)
-    """
-
-    def __init__(self, mapping=None):
-        super(Options, self).__init__()
-        if mapping is not None:
-            for key, value in mapping.items():
-                self.__setitem__(key, value)
-
-    def __setitem__(self, key, value):
-        if isinstance(value, dict):
-            value = Options(value)
-        super(Options, self).__setitem__(key, value)
-        self.__dict__[key] = value  # for code completion in editors
-
-    def __getattr__(self, item):
-        try:
-            return self.__getitem__(item)
-        except KeyError:
-            raise AttributeError(item)
-
-    def __str__(self):
-        def print_recursive(d, col=0):
-            ret = ""
-            for key, value in d.items():
-                if isinstance(value, dict):
-                    ret += "\t" * col + str(key) + ":\n" + print_recursive(value, col + 1)
-                else:
-                    col1 = str(key) + ": "
-                    col2 = str(value)
-                    ret += "\t" * col + "{:<30s}{:<30s}".format(col1, col2) + "\n"
-            return ret
-
-        return print_recursive(self.__dict__)
-
-    __setattr__ = __setitem__
-
-
-def FilePathString(v):
-    try:
-        return re.match(".*|random|content", v).group(0)
-    except:
-        raise argparse.ArgumentTypeError("String '%s' does not match required format" % (v,))
-
-
-def parse_args():
+def get_args():
     parser = argparse.ArgumentParser()
 
     # input options
+    parser.add_argument("-transfer_type", default="img_img", choices=["img_img", "vid_img", "img_vid"])
+    parser.add_argument("-output_dir", default="./output")
+    parser.add_argument("-content", help="Content target image")
+    parser.add_argument("-style", help="Style target image")
+    parser.add_argument("-init", type=str, default="random")
+    parser.add_argument("-seed", type=int, default=-1)
     parser.add_argument(
-        "-content", help="Content target image", default=argparse.SUPPRESS
-    )  # ) #, default='examples/inputs/tubingen.jpg')
+        "-automultiscale",
+        action="store_true",
+        help="automatic multi-network multi-scale model-parallel configuration for 2x 11 GB GPUs",
+    )
+
+    # main parameters
+    parser.add_argument("-image_sizes", default="256,512,724")
+    parser.add_argument("-num_iters", default="500,300,100")
+    parser.add_argument("-content_weight", type=float, default=5)
+    parser.add_argument("-temporal_weight", type=float, default=50)
+    parser.add_argument("-style_weight", type=float, default=100)
+    parser.add_argument("-style_blend_weights", default=None)
+    parser.add_argument("-style_scale", type=float, default=1.0)
+    parser.add_argument("-tv_weight", type=float, default=1e-3)
+
+    # model settings
+    parser.add_argument("-model_file", type=str, default="modelzoo/vgg19-d01eb7cb.pth")  # TODO use just model name
+    parser.add_argument("-content_layers", help="layers for content", default="relu4_2")
+    parser.add_argument("-style_layers", help="layers for style", default="relu1_1,relu2_1,relu3_1,relu4_1,relu5_1")
+    parser.add_argument("-pooling", choices=["avg", "max"], default="max")
+    parser.add_argument("-disable_check", action="store_true")
+
+    # switches
+    parser.add_argument("-original_colors", action="store_true")
+    parser.add_argument("-normalize_weights", action="store_true")
+    parser.add_argument("-no_grad_norm", action="store_true")
+    parser.add_argument("-no_hist_match", action="store_true")
+    parser.add_argument("-use_covariance", action="store_true")
+
+    # optimizer
+    parser.add_argument("-optimizer", choices=["lbfgs", "adam"], default="lbfgs")
+    parser.add_argument("-learning_rate", type=float, default=1)
+    parser.add_argument("-lbfgs_num_correction", type=int, default=100)
+    parser.add_argument("-lbfgs_tolerance_change", type=int, default=-1)
+    parser.add_argument("-lbfgs_tolerance_grad", type=int, default=-1)
+
+    # gpu-related
+    parser.add_argument("-gpu", help="Zero-indexed ID of the GPU to use; for CPU mode set -gpu = c", default=0)
     parser.add_argument(
-        "-style", help="Style target image", default=argparse.SUPPRESS
-    )  # , default='examples/inputs/seated-nude.jpg')
-    parser.add_argument("-output", default=argparse.SUPPRESS)  # , default='out.png')
-    parser.add_argument("-init", type=FilePathString, default=argparse.SUPPRESS)  # , default='random')
-    parser.add_argument("-style_blend_weights", default=argparse.SUPPRESS)  # , default=None)
-    parser.add_argument("-style_scale", type=float, default=argparse.SUPPRESS)  # , default=1.0)
-    parser.add_argument(
-        "-image_size", help="Maximum height / width of generated image", default=argparse.SUPPRESS
-    )  # ) #, default=512)
-    parser.add_argument("-original_colors", type=int, choices=[0, 1], default=argparse.SUPPRESS)  # , default=0)
-    parser.add_argument("-seed", type=int, default=argparse.SUPPRESS)  # , default=-1)
+        "-backend", choices=["nn", "cudnn", "mkl", "mkldnn", "openmp", "mkl,cudnn", "cudnn,mkl"], default="cudnn"
+    )
+    parser.add_argument("-multidevice_strategy", default="5")
+    parser.add_argument("-no_cudnn_autotune", action="store_true")
 
-    # Optimization options
-    parser.add_argument("-model_file", type=str, default=argparse.SUPPRESS)  # , default='models/vgg19-d01eb7cb.pth')
-    parser.add_argument("-content_weight", type=float, default=argparse.SUPPRESS)  # , default=5e0)
-    parser.add_argument("-temporal_weight", type=float, default=argparse.SUPPRESS)  # , default=5e0)
-    parser.add_argument("-style_weight", type=float, default=argparse.SUPPRESS)  # , default=1e2)
-    parser.add_argument("-normalize_weights", action="store_true", default=argparse.SUPPRESS)
-    parser.add_argument("-normalize_gradients", action="store_true", default=argparse.SUPPRESS)
-    parser.add_argument("-tv_weight", type=float, default=argparse.SUPPRESS)  # , default=1e-3)
-    parser.add_argument("-num_frames", type=int, default=argparse.SUPPRESS)  # , default=1e-3)
-    parser.add_argument("-avg_frame_window", type=int, default=argparse.SUPPRESS)  # , default=1e-3)
-    parser.add_argument("-gram_frame_window", type=int, default=argparse.SUPPRESS)  # , default=1e-3)
-    parser.add_argument("-use_covariance", action="store_true", default=argparse.SUPPRESS)
-    parser.add_argument("-pooling", choices=["avg", "max"], default=argparse.SUPPRESS)  # , default='max')
-    parser.add_argument("-content_layers", help="layers for content", default=argparse.SUPPRESS)  # , default='relu4_2')
-    parser.add_argument(
-        "-style_layers", help="layers for style", default=argparse.SUPPRESS
-    )  # , default='relu1_1,relu2_1,relu3_1,relu4_1,relu5_1')
-    parser.add_argument(
-        "-gpu", help="Zero-indexed ID of the GPU to use; for CPU mode set -gpu = c", default=argparse.SUPPRESS
-    )  # ) #, default=0)
-    parser.add_argument(
-        "-backend",
-        choices=["nn", "cudnn", "mkl", "mkldnn", "openmp", "mkl,cudnn", "cudnn,mkl"],
-        default=argparse.SUPPRESS,
-    )  # , default='nn')
-    parser.add_argument("-multidevice_strategy", default=argparse.SUPPRESS)  # , default='4,7,29')
-    parser.add_argument("-cudnn_autotune", action="store_true", default=argparse.SUPPRESS)
-    parser.add_argument("-disable_check", action="store_true", default=argparse.SUPPRESS)
+    # video content settings
+    parser.add_argument("-flow_model", type=str, default="unflow")
+    parser.add_argument("-flow_model_dir", type=str, default="../pytorch-unflow/")
+    parser.add_argument("-flow_model_type", type=str, default="css")
+    parser.add_argument("-passes_per_scale", type=int, default=4)
+    parser.add_argument("-temporal_blend", type=float, default=0.5)
+    parser.add_argument("-fps", type=float, default=24)
 
-    # Output options
-    parser.add_argument("-optimizer", choices=["lbfgs", "adam"], default=argparse.SUPPRESS)  # , default='lbfgs')
-    parser.add_argument("-num_iterations", default=argparse.SUPPRESS)  # , default=1000)
-    parser.add_argument("-learning_rate", type=float, default=argparse.SUPPRESS)  # , default=1e0)
-    parser.add_argument("-lbfgs_num_correction", type=int, default=argparse.SUPPRESS)  # , default=100)
-    parser.add_argument("-print_iter", type=int, default=argparse.SUPPRESS)  # , default=50)
-    parser.add_argument("-save_iter", type=int, default=argparse.SUPPRESS)  # , default=100)
+    # video style settings
+    parser.add_argument("-num_frames", type=int, default=48)
+    parser.add_argument("-video_style_factor", type=float, default=100)
+    parser.add_argument("-gram_frame_window", type=str, default="18,9,7")
+    parser.add_argument("-avg_frame_window", type=int, default=18)
+    parser.add_argument("-shift_factor", type=float, default=0)
 
-    return parser.parse_args()
+    # logging
+    parser.add_argument("-verbose", action="store_true")
+    parser.add_argument("-print_iter", type=int, default=0)
+    parser.add_argument("-save_iter", type=int, default=0)
+    parser.add_argument("-save_args", action="store_true")
+    parser.add_argument("-load_args", type=str, default=None)
 
+    args, ffargs = parser.parse_known_args()
 
-# General config
-def load_config(path, default_path=None):
-    """ Loads config file.
-    Args:
-        path (str): path to config file
-        default_path (bool): whether to use default path
-    """
-    # Load configuration from file itself
-    with open(path, "r") as f:
-        cfg_special = yaml.load(f)
+    output = f"{name(args.content)}_{'_'.join([name(s) for s in args.style.split(',')])}_{str(uuid.uuid4())[:6]}"
 
-    # Check if we should inherit from a config
-    inherit_from = cfg_special.get("inherit_from")
+    if args.save_args:
+        with open(f"config/{output}_args.json", "w") as f:
+            json.dump(args.__dict__, f, indent=2)
 
-    # If yes, load this config first as default
-    # If no, use the default_path
-    if inherit_from is not None:
-        cfg = load_config(inherit_from, default_path)
-    elif default_path is not None:
-        with open(default_path, "r") as f:
-            cfg = yaml.load(f)
-    else:
-        cfg = dict()
+    if args.load_args is not None:
+        # store any specified cmdline arguments
+        non_default = {}
+        argdict = vars(args)
+        for key in vars(args):
+            if argdict[key] != parser.get_default(key):
+                non_default[key] = argdict[key]
 
-    # Include main configuration
-    update_recursive(cfg, cfg_special)
+        # load from file
+        arg_file = args.load_args
+        args = argparse.Namespace()
+        with open(arg_file, "r") as f:
+            args.__dict__ = json.load(f)
 
-    args = parse_args()
-    update_iterative(cfg, args.__dict__)
+        # override with non-default arguments
+        for key in non_default:
+            setattr(args, key, non_default[key])
 
-    cfg["model"]["dtype"], cfg["model"]["multidevice"], cfg["model"]["backward_device"] = setup_gpu(cfg)
+    args.normalize_gradients = not args.no_grad_norm
+    args.match_histograms = not args.no_hist_match
+    args.cudnn_autotune = not args.no_cudnn_autotune
 
-    opt = Options(cfg)
+    args.image_sizes = [int(s) for s in ("" + args.image_sizes).split(",")]
+    args.num_iters = [int(s) for s in ("" + args.num_iters).split(",")]
 
-    if opt.input.seed >= 0:
-        torch.manual_seed(opt.input.seed)
-        torch.cuda.manual_seed_all(opt.input.seed)
-        if opt.model.backend == "cudnn":
-            torch.backends.cudnn.deterministic = True
+    ffargs = {k: v for k, v in zip(ffargs[::2], ffargs[1::2])}
+    ffargs["-fps"] = args.fps
+    ffargs["-framerate"] = args.fps
 
-    print(opt)
-    print()
-    return opt
+    args.ffmpeg = ffargs
+
+    args.output = f"{args.output_dir}/{output}"
+    args.dtype, args.multidevice, args.backward_device = setup_gpu(args)
+
+    return args
 
 
-def update_recursive(dict1, dict2):
-    """ Merge two config dictionaries recursively.
-    Args:
-        dict1 (dict): first dictionary to be updated
-        dict2 (dict): second dictionary which entries should be used
-    """
-    for k, v in dict2.items():
-        if k not in dict1:
-            dict1[k] = None
-        if isinstance(dict1[k], dict):
-            update_recursive(dict1[k], v)
-        else:
-            dict1[k] = v
-
-
-def update_iterative(dict1, dict2):
-    for replace_key, replace_val in dict2.items():
-        found = False
-        for k in dict1.keys():
-            if k == replace_key:
-                dict1[k] = replace_val
-                fount = True
-            if isinstance(dict1[k], dict):
-                for k2 in dict1[k].keys():
-                    if replace_key == k2:
-                        dict1[k][k2] = replace_val
-                        found = True
-        if not found:
-            dict1[replace_key] = replace_val
-
-
-def setup_gpu(cfg):
+def setup_gpu(args):
     def setup_cuda():
-        if "cudnn" in cfg["model"]["backend"]:
+        if "cudnn" in args.backend:
             torch.backends.cudnn.enabled = True
-            if cfg["model"]["cudnn_autotune"]:
+            if args.cudnn_autotune:
                 torch.backends.cudnn.benchmark = True
         else:
             torch.backends.cudnn.enabled = False
 
     def setup_cpu():
-        if "mkldnn" in cfg["model"]["backend"]:
+        if "mkldnn" in args.backend:
             raise ValueError("MKL-DNN is not supported yet.")
-        elif "mkl" in cfg["model"]["backend"]:
+        elif "mkl" in args.backend:
             torch.backends.mkl.enabled = True
-        elif "openmp" in cfg["model"]["backend"]:
+        elif "openmp" in args.backend:
             torch.backends.openmp.enabled = True
 
     multidevice = False
-    if "," in str(cfg["model"]["gpu"]):
-        devices = cfg["model"]["gpu"].split(",")
+    if "," in str(args.gpu):
+        devices = args.gpu.split(",")
         multidevice = True
         if "c" in str(devices[0]).lower():
             backward_device = "cpu"
@@ -221,9 +158,9 @@ def setup_gpu(cfg):
             backward_device = "cuda:" + devices[0]
             setup_cuda()
             dtype = torch.cuda.FloatTensor
-    elif "c" not in str(cfg["model"]["gpu"]).lower():
+    elif "c" not in str(args.gpu).lower():
         setup_cuda()
-        dtype, backward_device = torch.cuda.FloatTensor, "cuda:" + str(cfg["model"]["gpu"])
+        dtype, backward_device = torch.cuda.FloatTensor, "cuda:" + str(args.gpu)
     else:
         setup_cpu()
         dtype, backward_device = torch.FloatTensor, "cpu"

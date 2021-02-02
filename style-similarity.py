@@ -81,18 +81,18 @@ def generate_grids():
                 grid.paste(im, (i, j))
                 index += 1
 
-        grid.save(f"{dataset_folder}/grids/{images[ii].split('/')[-1].split('.')[0]}.png")
+        grid.save(f"{dataset_folder}/grids/{images[ii].split('/')[-1].split('.')[0]}.jpg")
 
 
 # generate_grids()
 
-opt = config.load_config("config/sim.yaml")
+args = config.load_config("config/sim.yaml")
 
 for ii, main_im in enumerate(tqdm(images)):
     for imfile in closest[ii]:
-        opt.input.style = f"{main_im},{imfile}"
-        # print(opt.input.style)
-        canvas.img_img(opt)
+        args.style = f"{main_im},{imfile}"
+        # print(args.style)
+        canvas.img_img(args)
     for imfiles in itertools.combinations(closest[ii], 2):
-        opt.input.style = f"{main_im}{','.join(imfiles)}"
-        canvas.img_img(opt)
+        args.style = f"{main_im}{','.join(imfiles)}"
+        canvas.img_img(args)

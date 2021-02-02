@@ -9,7 +9,7 @@ param:
   num_scales: 2
   image_sizes: 256,512,1024,2048,3072,4096,5000,6000
   size_scaling: linear
-  num_iterations: 500,500,400,300,200,100,50,50
+  num_iters: 500,500,400,300,200,100,50,50
   iter_scaling: linear
   content_weight: 1
   style_weight: 100

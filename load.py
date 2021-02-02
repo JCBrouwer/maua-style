@@ -49,14 +49,14 @@ def deprocess(output_tensor):
     return T.ToPILImage()(output_tensor.cpu())
 
 
-def save_tensor_to_file(tensor, opt, iteration=None, size=None, filename=None):
+def save_tensor_to_file(tensor, args, iteration=None, size=None, filename=None):
     if filename is None:
         if size is None:
-            filename = f"{opt.output}"
+            filename = f"{args.output}"
         elif iteration is None:
-            filename = f"{opt.output}_{size}"
+            filename = f"{args.output}_{size}"
         else:
-            filename = f"{opt.output}_{size}_{iteration}"
+            filename = f"{args.output}_{size}_{iteration}"
 
     # TODO add video deprocess function and make original_colors() work with videos
     if tensor.size()[0] > 1:
@@ -66,14 +66,14 @@ def save_tensor_to_file(tensor, opt, iteration=None, size=None, filename=None):
         skvideo.io.vwrite(f"{filename}.mp4", video)
     else:
         img = deprocess(tensor.clone())
-        if opt.param.original_colors == 1:
-            img = original_colors(deprocess(preprocess(opt.content)), img)
-        img.save(f"{filename}.png")
+        if args.original_colors == 1:
+            img = original_colors(deprocess(preprocess(args.content)), img)
+        img.save(f"{filename}.jpg")
 
 
-def process_style_images(opt):
-    style_image_input = opt.input.style.split(",")
-    style_image_list, ext = [], [".jpg", ".jpeg", ".png", ".tiff"]
+def process_style_images(args):
+    style_image_input = args.style.split(",")
+    style_image_list, ext = [], [".jpg", ".jpeg", ".jpg", ".tiff"]
     for image in style_image_input:
         if os.path.isdir(image):
             images = (image + "/" + file for file in os.listdir(image) if os.path.splitext(file)[1].lower() in ext)
@@ -86,12 +86,12 @@ def process_style_images(opt):
 
     # Handle style blending weights for multiple style inputs
     style_blend_weights = []
-    # if opt.param.style_blend_weights is False:
+    # if args.style_blend_weights is False:
     # Style blending not specified, so use equal weighting
     for i in style_image_list:
         style_blend_weights.append(1.0)
     # else:
-    #     style_blend_weights = [float(x) for x in opt.param.style_blend_weights.split(",")]
+    #     style_blend_weights = [float(x) for x in args.style_blend_weights.split(",")]
     #     assert len(style_blend_weights) == len(
     #         style_image_list
     #     ), "-style_blend_weights and -style_images must have the same number of elements!"
@@ -101,7 +101,7 @@ def process_style_images(opt):
     for i, blend_weight in enumerate(style_blend_weights):
         style_blend_weights[i] = blend_weight / style_blend_sum
 
-    opt.param.style_blend_weights = style_blend_weights
+    args.style_blend_weights = style_blend_weights
 
     return style_images
 
@@ -114,8 +114,8 @@ def name(s):
     return s.split("/")[-1].split(".")[0]
 
 
-def process_style_videos(opt):
-    style_video_input = opt.input.style.split(",")
+def process_style_videos(args):
+    style_video_input = args.style.split(",")
 
     style_video_list, ext = [], [".mp4", ".gif"]
     for video in style_video_input:
@@ -127,16 +127,16 @@ def process_style_videos(opt):
 
     style_videos = []
     for video_path in style_video_list:
-        style_videos.append(preprocess_video(video_path, opt.ffmpeg.fps))
+        style_videos.append(preprocess_video(video_path, args.ffmpeg.fps))
 
     # Handle style blending weights for multiple style inputs
     style_blend_weights = []
-    if opt.param.style_blend_weights is False:
+    if args.style_blend_weights is False:
         # Style blending not specified, so use equal weighting
         for i in style_video_list:
             style_blend_weights.append(1.0)
     else:
-        style_blend_weights = [float(x) for x in opt.param.style_blend_weights.split(",")]
+        style_blend_weights = [float(x) for x in args.style_blend_weights.split(",")]
         assert len(style_blend_weights) == len(
             style_video_list
         ), "-style_blend_weights and -style must have the same number of elements!"
@@ -146,19 +146,17 @@ def process_style_videos(opt):
     for i, blend_weight in enumerate(style_blend_weights):
         style_blend_weights[i] = blend_weight / style_blend_sum
 
-    opt.param.style_blend_weights = style_blend_weights
+    args.style_blend_weights = style_blend_weights
 
     return style_videos
 
 
 # extract frames from video, calculate optical flow in forward and backward direction, save as flo and png files
-def process_content_video(model, opt):
+def process_content_video(model, args):
     import flow
     import ffmpeg
 
-    work_dir = (
-        opt.output_dir + "/" + name(opt.input.content) + "_" + "_".join([name(s) for s in opt.input.style.split(",")])
-    )
+    work_dir = args.output_dir + "/" + name(args.content) + "_" + "_".join([name(s) for s in args.style.split(",")])
     frames_dir = work_dir + "/frames/"
     flow_dir = work_dir + "/flow/"
     os.makedirs(work_dir, exist_ok=True)
@@ -166,13 +164,13 @@ def process_content_video(model, opt):
     os.makedirs(flow_dir, exist_ok=True)
 
     if len(os.listdir(frames_dir)) == 0:
-        ffmpeg.input(opt.input.content).output(frames_dir + "/%05d.png").run()
+        ffmpeg.input(args.content).output(frames_dir + "/%05d.jpg").run()
 
     with th.no_grad():
-        images = [frames_dir + file for file in sorted(os.listdir(frames_dir)) if ".png" in file and "_" not in file]
+        images = [frames_dir + file for file in sorted(os.listdir(frames_dir)) if ".jpg" in file and "_" not in file]
         images.append(images[0])
         for img_file1, img_file2 in zip(*(itertools.islice(images, i, None) for i in range(2))):
-            if os.path.isfile("%s/backward_%s_%s.png" % (flow_dir, name(img_file2), name(img_file1))):
+            if os.path.isfile("%s/backward_%s_%s.jpg" % (flow_dir, name(img_file2), name(img_file1))):
                 continue
             img1 = np.array(Image.open(img_file1))
             img2 = np.array(Image.open(img_file2))
@@ -185,11 +183,11 @@ def process_content_video(model, opt):
 
             reliable_flow_arr = flow.check_consistency(forward_flow, backward_flow)
             reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
-            reliable_flow_img.save("%s/forward_%s_%s.png" % (flow_dir, name(img_file1), name(img_file2)))
+            reliable_flow_img.save("%s/forward_%s_%s.jpg" % (flow_dir, name(img_file1), name(img_file2)))
 
             reliable_flow_arr = flow.check_consistency(backward_flow, forward_flow)
             reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
-            reliable_flow_img.save("%s/backward_%s_%s.png" % (flow_dir, name(img_file2), name(img_file1)))
+            reliable_flow_img.save("%s/backward_%s_%s.jpg" % (flow_dir, name(img_file2), name(img_file1)))
 
             print("processed optical flow: %s <---> %s" % (name(img_file1), name(img_file2)))
 

@@ -11,27 +11,27 @@ import scipy.ndimage as ndi
 import torch as th
 import torch.nn.functional as F
 
+import config
 import flow
 import load
 import models
 import style
-from config import load_config
-from utils import determine_scaling, info, match_histogram, name
+from utils import info, match_histogram, name
 
 
-def img_img(opt):
-    style_images_big = load.process_style_images(opt)
-    content_image_big = match_histogram(load.preprocess(opt.input.content), style_images_big)
+def img_img(args):
+    style_images_big = load.process_style_images(args)
+    content_image_big = match_histogram(load.preprocess(args.content), style_images_big)
     content_size = np.array(content_image_big.size()[-2:])
-    if opt.input.init != "content" and opt.input.init != "random":
-        pastiche = load.preprocess(opt.input.init)
+    if args.init != "content" and args.init != "random":
+        pastiche = load.preprocess(args.init)
     else:
         pastiche = None
 
-    for (current_size, num_iters) in zip(*determine_scaling(opt.param)):
+    for (current_size, num_iters) in zip(args.image_sizes, args.num_iters):
         print("\nCurrent size {}px".format(current_size))
-        if os.path.exists(f"{opt.output}_{current_size}.png"):
-            pastiche = load.preprocess(f"{opt.output}_{current_size}.png")
+        if os.path.exists(f"{args.output}_{current_size}.jpg"):
+            pastiche = load.preprocess(f"{args.output}_{current_size}.jpg")
             continue
 
         # scale content image
@@ -45,16 +45,16 @@ def img_img(opt):
         style_images = []
         content_area = content_image.shape[2] * content_image.shape[3]
         for img in style_images_big:
-            style_scale = math.sqrt(content_area / (img.size(3) * img.size(2))) * opt.param.style_scale
+            style_scale = math.sqrt(content_area / (img.size(3) * img.size(2))) * args.style_scale
             style_images.append(
                 F.interpolate(th.clone(img), scale_factor=style_scale, mode="bilinear", align_corners=False)
             )
 
         # Initialize the pastiche image
-        if opt.input.init == "random" and pastiche is None:
+        if args.init == "random" and pastiche is None:
             H, W = content_image.shape[2:]
             pastiche = th.randn(1, 3, H, W).mul(0.001)
-        elif opt.input.init == "content" and pastiche is None:
+        elif args.init == "content" and pastiche is None:
             pastiche = F.interpolate(
                 content_image_big.clone(),
                 tuple(np.int64(content_image.shape[2:])),
@@ -67,52 +67,51 @@ def img_img(opt):
             )
         pastiche = match_histogram(pastiche, style_images_big)
 
-        output_image = style.optimize(content_image, style_images, pastiche, num_iters, opt)
+        output_image = style.optimize(content_image, style_images, pastiche, num_iters, args)
 
         pastiche = match_histogram(output_image.detach().cpu(), style_images_big)
 
-        load.save_tensor_to_file(pastiche.detach().cpu(), opt, size=current_size)
+        load.save_tensor_to_file(pastiche.detach().cpu(), args, size=current_size)
 
 
-def img_vid(opt):
+def img_vid(args):
     # load style videos
-    style_videos_big = load.process_style_videos(opt)
-    # style_videos_big = [svb[:144] for svb in style_videos_big]
+    style_videos_big = load.process_style_videos(args)
 
     # load content image
-    content_image_big = load.preprocess(opt.input.content)
-    if opt.param.match_histograms != False:
-        content_image_big = match_histogram(content_image_big, style_videos_big, mode=opt.param.match_histograms)
+    content_image_big = load.preprocess(args.content)
+    if args.match_histograms != False:
+        content_image_big = match_histogram(content_image_big, style_videos_big, mode=args.match_histograms)
 
     # determine frame settings
-    if opt.param.num_frames == -1:
+    if args.num_frames == -1:
         video_length = max([vid.shape[0] for vid in style_videos_big])
     else:
-        video_length = opt.param.num_frames
-    delta_ts = opt.param.gram_frame_window.split(",")
+        video_length = args.num_frames
+    delta_ts = args.gram_frame_window.split(",")
 
     # initialize pastiche image
     H, W = content_size = np.array(content_image_big.size()[-2:])
-    if opt.input.init == "random":
+    if args.init == "random":
         pastiche = th.randn((video_length, 3, H, W)) * 255
         pastiche = th.from_numpy(ndi.gaussian_filter(pastiche.numpy(), [video_length, 0, H / 32, W / 32], mode="wrap"))
-    elif opt.input.init == "content":
+    elif args.init == "content":
         pastiche = F.interpolate(content_image_big.clone(), tuple(content_size), mode="bilinear", align_corners=False)
         pastiche = pastiche.repeat([video_length, 1, 1, 1])
         pastiche += th.randn((video_length, 3, H, W)) * 255
         pastiche = th.from_numpy(ndi.gaussian_filter(pastiche.numpy(), [video_length, 0, 4, 4], mode="wrap"))
     else:
-        pastiche = load.preprocess_video(opt.input.init, opt.ffmpeg.fps)
+        pastiche = load.preprocess_video(args.init, args.fps)
         pastiche = pastiche.repeat([video_length, 1, 1, 1])
-    if opt.param.match_histograms != False:
-        pastiche = match_histogram(pastiche, style_videos_big, mode=opt.param.match_histograms)
+    if args.match_histograms != False:
+        pastiche = match_histogram(pastiche, style_videos_big, mode=args.match_histograms)
 
-    for i, (current_size, num_iters) in enumerate(zip(*determine_scaling(opt.param))):
-        if os.path.exists(f"{opt.output}_{current_size}.mp4"):
-            pastiche = load.preprocess_video(f"{opt.output}_{current_size}.mp4", opt.ffmpeg.fps)
+    for i, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.num_iters)):
+        if os.path.exists(f"{args.output}_{current_size}.mp4"):
+            pastiche = load.preprocess_video(f"{args.output}_{current_size}.mp4", args.fps)
             continue
         print("\nCurrent size {}px".format(current_size))
-        opt.param.gram_frame_window = int(delta_ts[i])
+        args.gram_frame_window = int(delta_ts[i])
 
         # scale content image
         content_image = F.interpolate(
@@ -123,7 +122,7 @@ def img_vid(opt):
         style_videos = []
         content_area = content_image.shape[2] * content_image.shape[3]
         for vid in style_videos_big:
-            style_scale = math.sqrt(content_area / (vid.size(3) * vid.size(2))) * opt.param.style_scale
+            style_scale = math.sqrt(content_area / (vid.size(3) * vid.size(2))) * args.style_scale
             style_videos.append(
                 F.interpolate(th.clone(vid), scale_factor=style_scale, mode="bilinear", align_corners=False)
             )
@@ -133,36 +132,30 @@ def img_vid(opt):
             pastiche.clone(), tuple(np.int64(content_image.shape[2:])), mode="bilinear", align_corners=False
         )
 
-        pastiche = style.optimize(content_image, style_videos, pastiche, num_iters, opt).detach().cpu()
+        pastiche = style.optimize(content_image, style_videos, pastiche, num_iters, args).detach().cpu()
 
         pastiche = th.cat((pastiche[7:], pastiche[:7]))
         style_videos_big = [th.cat((svb[7:], svb[:7])) for svb in style_videos_big]
 
-        if opt.param.temporal_smoothing > 0:
-            pastiche = th.from_numpy(
-                ndi.gaussian_filter(pastiche, [opt.param.temporal_smoothing, 0, 0, 0], mode="wrap")
-            )
-        if opt.param.match_histograms != False:
-            pastiche = match_histogram(pastiche, style_videos_big, mode=opt.param.match_histograms)
-        load.save_tensor_to_file(pastiche, opt, filename=f"{opt.output}_{current_size}")
-        # load.save_tensor_to_file(pastiche, opt, filename=f"{opt.output}_raw_{current_size}")
+        if args.temporal_blend > 0:
+            pastiche = th.from_numpy(ndi.gaussian_filter(pastiche, [args.temporal_blend, 0, 0, 0], mode="wrap"))
+        if args.match_histograms != False:
+            pastiche = match_histogram(pastiche, style_videos_big, mode=args.match_histograms)
+        load.save_tensor_to_file(pastiche, args, filename=f"{args.output}_{current_size}")
 
-    load.save_tensor_to_file(match_histogram(pastiche, style_videos_big, mode=opt.param.match_histograms), opt)
+    load.save_tensor_to_file(match_histogram(pastiche, style_videos_big, mode=args.match_histograms), args)
 
 
-# TODO fix vid_img to work with new optimize function, figure out how to setup network & style targets only once!
-def vid_img(opt):
-    output_dir = (
-        opt.output_dir + "/" + name(opt.input.content) + "_" + "_".join([name(s) for s in opt.input.style.split(",")])
-    )
+def vid_img(args):
+    output_dir = args.output_dir + "/" + name(args.content) + "_" + "_".join([name(s) for s in args.style.split(",")])
 
-    flow_model = flow.get_flow_model(opt)
-    frames = load.process_content_video(flow_model, opt)
+    flow_model = flow.get_flow_model(args)
+    frames = load.process_content_video(flow_model, args)
     content_size = np.array(load.preprocess(frames[0]).size()[-2:])
 
-    style_images_big = load.process_style_images(opt)
+    style_images_big = load.process_style_images(args)
 
-    for size_n, (current_size, num_iters) in enumerate(zip(*determine_scaling(opt.param))):
+    for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.num_iters)):
         print("\nCurrent size {}px".format(current_size))
         os.makedirs(output_dir + "/" + str(current_size), exist_ok=True)
         content_scale = current_size / max(*content_size)
@@ -171,27 +164,27 @@ def vid_img(opt):
         style_images = []
         content_area = content_size[0] * content_size[1]
         for img in style_images_big:
-            style_scale = math.sqrt(content_area / (img.size(3) * img.size(2))) * opt.param.style_scale
+            style_scale = math.sqrt(content_area / (img.size(3) * img.size(2))) * args.style_scale
             style_images.append(
                 F.interpolate(th.clone(img), scale_factor=style_scale, mode="bilinear", align_corners=False)
             )
 
         if current_size <= 1024:
-            opt.model.gpu = 0
-            opt.model.multidevice = False
+            args.gpu = 0
+            args.multidevice = False
         else:
-            opt.model.gpu = "0,1"
-            opt.model.multidevice = True
-            opt.param.tv_weight = 0
-        net, losses = models.load_model(opt.model, opt.param)
-        # style.set_style_targets(net, style_images, opt)
+            args.gpu = "0,1"
+            args.multidevice = True
+            args.tv_weight = 0
+        net, losses = models.load_model(args)
+        # style.set_style_targets(net, style_images, args)
 
-        for pass_n in range(opt.param.passes_per_scale):
+        for pass_n in range(args.passes_per_scale):
             pastiche = None
             for (prev_frame, this_frame) in zip(frames, frames[1:] + frames[:1]):
                 # TODO add update_style() function to support changing styles per frame
-                opt.output = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n + 1, name(this_frame))
-                if os.path.isfile(opt.output):
+                args.output = "%s/%s/%s_%s.jpg" % (output_dir, current_size, pass_n + 1, name(this_frame))
+                if os.path.isfile(args.output):
                     print("Skipping pass: %s, frame: %s. File already exists." % (pass_n + 1, name(this_frame)))
                     continue
                 print("Optimizing... size: %s, pass: %s, frame: %s" % (current_size, pass_n + 1, name(this_frame)))
@@ -205,14 +198,14 @@ def vid_img(opt):
                     ),
                 ]
                 content_frames = [match_histogram(frame, style_images_big[0]) for frame in content_frames]
-                # style.set_content_targets(net, content_frames[1], opt)
+                # style.set_content_targets(net, content_frames[1], args)
 
                 # Initialize the image
                 # TODO make sure initialization correct even when continuing half way through video stylization
                 if size_n == 0 and pass_n == 0:
-                    if opt.input.init == "random":
+                    if args.init == "random":
                         pastiche = th.randn(content_frames[1].size()).mul(0.001)
-                    elif opt.input.init == "prev_warp":
+                    elif args.init == "prev_warp":
                         flo_file = "%s/flow/forward_%s_%s.flo" % (output_dir, name(prev_frame), name(this_frame))
                         flow_map = load.flow_warp_map(flo_file)
                         if pastiche is None:
@@ -224,22 +217,12 @@ def vid_img(opt):
                     if pass_n == 0:
                         # load images from last pass of previous size
                         if pastiche is None:
-                            ifile = "%s/%s/%s_%s.png" % (
-                                output_dir,
-                                prev_size,
-                                opt.param.passes_per_scale,
-                                name(prev_frame),
-                            )
+                            ifile = "%s/%s/%s_%s.jpg" % (output_dir, prev_size, args.passes_per_scale, name(prev_frame))
                             pastiche = load.preprocess(ifile)
                             pastiche = F.interpolate(
                                 pastiche, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
                             )
-                        bfile = "%s/%s/%s_%s.png" % (
-                            output_dir,
-                            prev_size,
-                            opt.param.passes_per_scale,
-                            name(this_frame),
-                        )
+                        bfile = "%s/%s/%s_%s.jpg" % (output_dir, prev_size, args.passes_per_scale, name(this_frame))
                         blend_image = load.preprocess(bfile)
                         blend_image = F.interpolate(
                             blend_image, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
@@ -247,9 +230,9 @@ def vid_img(opt):
                     else:
                         # load images from previous pass of current size
                         if pastiche is None:
-                            ifile = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n, name(prev_frame))
+                            ifile = "%s/%s/%s_%s.jpg" % (output_dir, current_size, pass_n, name(prev_frame))
                             pastiche = load.preprocess(ifile)
-                        bfile = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n, name(this_frame))
+                        bfile = "%s/%s/%s_%s.jpg" % (output_dir, current_size, pass_n, name(this_frame))
                         blend_image = load.preprocess(bfile)
 
                     direction = "forward" if pass_n % 2 == 0 else "backward"
@@ -261,50 +244,52 @@ def vid_img(opt):
 
                     warp_image = F.grid_sample(pastiche, flow_map, padding_mode="border")
 
-                    flow_weight_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.png"
+                    flow_weight_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.jpg"
                     reliable_flow = load.reliable_flow_weighting(flow_weight_file)
                     reliable_flow = F.interpolate(
                         reliable_flow, size=pastiche.size()[2:], mode="bilinear", align_corners=False
                     )
 
-                    style.set_temporal_targets(net, warp_image, warp_weights=reliable_flow, opt=opt)
+                    style.set_temporal_targets(net, warp_image, warp_weights=reliable_flow, args=args)
 
-                    blend_pastiche = (1 - opt.param.blend_weight) * blend_image + opt.param.blend_weight * pastiche
+                    blend_pastiche = (1 - args.temporal_blend) * blend_image + args.temporal_blend * pastiche
                     warp_blend_pastiche = F.grid_sample(blend_pastiche, flow_map, padding_mode="border")
                     pastiche = warp_blend_pastiche
 
                 output_image = style.optimize(
-                    content_frames[1], style_images, pastiche, num_iters // opt.param.passes_per_scale, opt, net, losses
+                    content_frames[1], style_images, pastiche, num_iters // args.passes_per_scale, args, net, losses
                 )
 
                 pastiche = match_histogram(output_image.detach().cpu(), style_images_big[0])
 
                 disp = load.deprocess(pastiche.clone())
-                if opt.param.original_colors == 1:
+                if args.original_colors == 1:
                     disp = load.original_colors(load.deprocess(content_frames[1].clone()), disp)
-                disp.save(str(opt.output))
+                disp.save(str(args.output))
 
             # clean up / prepare for next pass
             frames = frames[7:] + frames[:7]  # rotate frames
             frames = list(reversed(frames))
 
-        ffmpeg.input(output_dir + "/" + str(current_size) + "/" + str(pass_n) + "_%05d.png").output(
-            "%s/%s_%s.mp4" % (output_dir, name(output_dir), current_size), **opt.ffmpeg
+        ffmpeg.input(output_dir + "/" + str(current_size) + "/" + str(pass_n) + "_%05d.jpg").output(
+            "%s/%s_%s.mp4" % (output_dir, name(output_dir), current_size), **args.ffmpeg
         ).overwrite_output().run()
         prev_size = current_size
         del net
         th.cuda.empty_cache()
 
-    ffmpeg.input(f"{output_dir}/{current_size}/{pass_n}_%05d.png").output(
-        opt.output, **opt.ffmpeg
+    ffmpeg.input(f"{output_dir}/{current_size}/{pass_n}_%05d.jpg").output(
+        args.output, **args.ffmpeg
     ).overwrite_output().run()
 
 
-opt = load_config("config/vid-ub94.yaml")
-opt.output = f"{opt.output_dir}/{name(opt.input.content)}_{'_'.join([name(s) for s in opt.input.style.split(',')])}"
-if opt.transfer_type == "img_img":
-    img_img(opt)
-elif opt.transfer_type == "vid_img":
-    vid_img(opt)
-elif opt.transfer_type == "img_vid":
-    img_vid(opt)
+if __name__ == "__main__":
+    args = config.get_args()
+
+    if args.seed >= 0:
+        th.manual_seed(args.seed)
+        th.cuda.manual_seed_all(args.seed)
+        if args.backend == "cudnn":
+            th.backends.cudnn.deterministic = True
+
+    eval(args.transfer_type)(args)

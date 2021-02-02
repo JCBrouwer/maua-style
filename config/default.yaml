@@ -25,7 +25,7 @@ model:
   disable_check: False
 optim:
   optimizer: lbfgs
-  num_iterations: 1000
+  num_iters: 1000
   learning_rate: 1
   lbfgs_num_correction: 100
   print_iter: 100

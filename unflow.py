@@ -1,9 +1,10 @@
 import torch
+
 from correlation import correlation  # the custom cost volume layer
 
 
 class UnFlow(torch.nn.Module):
-    def __init__(self, opt):
+    def __init__(self, model_file):
         super(UnFlow, self).__init__()
 
         class Upconv(torch.nn.Module):
@@ -228,7 +229,7 @@ class UnFlow(torch.nn.Module):
 
         self.moduleFlownets = torch.nn.ModuleList([Complex(), Simple(), Simple()])
 
-        self.load_state_dict(torch.load(opt.model_dir_gpu + "/network-" + opt.model_type_gpu + ".pytorch"))
+        self.load_state_dict(torch.load(model_file))
 
     def forward(self, tensorFirst, tensorSecond):
         tensorFirst = tensorFirst[:, [2, 1, 0], :, :]

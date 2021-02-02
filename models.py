@@ -1,13 +1,15 @@
-import torch
-import torch.nn as nn
-from loss import *
 import copy
-from os import path
 import urllib.request
 from collections import OrderedDict
-from torch.utils.model_zoo import load_url
-import style
+from os import path
 from types import MethodType
+
+import torch
+import torch.nn as nn
+from torch.utils.model_zoo import load_url
+
+import style
+from loss import *
 
 
 class VGG(nn.Module):
@@ -118,7 +120,7 @@ def build_sequential(channel_list, pooling):
     elif pooling == "avg":
         pool2d = nn.AvgPool2d(kernel_size=2, stride=2)
     else:
-        raise ValueError("Unrecognized pooling parameter")
+        raise ValueError("Unrecognized pooling argseter")
     for c in channel_list:
         if c == "P":
             layers += [pool2d]
@@ -264,7 +266,7 @@ def select_model(model_file, pooling, verbose):
             if not path.exists(model_file):
                 # Download the VGG-19 model and fix the layer names
                 print("Model file not found: " + model_file)
-                sd = load_url("https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg19-d01eb7cb.pth")
+                sd = load_url("https://web.eecs.umich.edu/~justincj/models/vgg19-d01eb7cb.pth")
                 map = {
                     "classifier.1.weight": "classifier.0.weight",
                     "classifier.1.bias": "classifier.0.bias",
@@ -272,7 +274,7 @@ def select_model(model_file, pooling, verbose):
                     "classifier.4.bias": "classifier.3.bias",
                 }
                 sd = OrderedDict([(map[k] if k in map else k, v) for k, v in sd.items()])
-                torch.save(sd, path.join("models", "vgg19-d01eb7cb.pth"))
+                torch.save(sd, path.join("modelzoo", "vgg19-d01eb7cb.pth"))
             cnn, layerList = VGG(build_sequential(channel_list["VGG-19"], pooling)), vgg19_dict
         elif "16" in model_file:
             if verbose:
@@ -280,7 +282,7 @@ def select_model(model_file, pooling, verbose):
             if not path.exists(model_file):
                 # Download the VGG-16 model and fix the layer names
                 print("Model file not found: " + model_file)
-                sd = load_url("https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg16-00b39a1b.pth")
+                sd = load_url("https://web.eecs.umich.edu/~justincj/models/vgg16-00b39a1b.pth")
                 map = {
                     "classifier.1.weight": "classifier.0.weight",
                     "classifier.1.bias": "classifier.0.bias",
@@ -288,7 +290,7 @@ def select_model(model_file, pooling, verbose):
                     "classifier.4.bias": "classifier.3.bias",
                 }
                 sd = OrderedDict([(map[k] if k in map else k, v) for k, v in sd.items()])
-                torch.save(sd, path.join("models", "vgg16-00b39a1b.pth"))
+                torch.save(sd, path.join("modelzoo", "vgg16-00b39a1b.pth"))
             cnn, layerList = VGG(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
         else:
             raise ValueError("VGG architecture not recognized.")
@@ -298,9 +300,10 @@ def select_model(model_file, pooling, verbose):
         if not path.exists(model_file):
             # Download the NIN model
             print("Model file not found: " + model_file)
+            print("Downloading...")
             urllib.request.urlretrieve(
                 "https://raw.githubusercontent.com/ProGamerGov/pytorch-nin/master/nin_imagenet.pth",
-                path.join("models", "nin_imagenet.pth"),
+                path.join("modelzoo", "nin_imagenet.pth"),
             )
         cnn, layerList = NIN(pooling), nin_dict
     else:
@@ -309,20 +312,20 @@ def select_model(model_file, pooling, verbose):
 
 
 # Load the model, and configure pooling layer type
-def load_model(opt, param):
-    cnn, layer_list = select_model(str(opt.model_file).lower(), opt.pooling, opt.verbose)
+def load_model(args):
+    cnn, layer_list = select_model(str(args.model_file).lower(), args.pooling, args.verbose)
 
-    cnn.load_state_dict(torch.load(opt.model_file), strict=(not opt.disable_check))
-    if opt.verbose:
-        print("Successfully loaded " + str(opt.model_file))
+    cnn.load_state_dict(torch.load(args.model_file), strict=(not args.disable_check))
+    if args.verbose:
+        print("Successfully loaded " + str(args.model_file))
 
     # Maybe convert the model to cuda now, to avoid later issues
-    if "c" not in str(opt.gpu).lower() or "c" not in str(opt.gpu[0]).lower():
+    if "c" not in str(args.gpu).lower() or "c" not in str(args.gpu[0]).lower():
         cnn = cnn.cuda()
     cnn = cnn.features
 
-    content_layers = opt.content_layers.split(",")
-    style_layers = opt.style_layers.split(",")
+    content_layers = args.content_layers.split(",")
+    style_layers = args.style_layers.split(",")
 
     # Set up the network, inserting style and content loss modules
     cnn = copy.deepcopy(cnn)
@@ -331,14 +334,14 @@ def load_model(opt, param):
     net = nn.Sequential()
     c, r = 0, 0
 
-    if param.tv_weight > 0:
-        tv_mod = TVLoss(param.tv_weight)
+    if args.tv_weight > 0:
+        tv_mod = TVLoss(args.tv_weight)
         tv_mod.name = f"tv {len(net)}"
         net.add_module(str(len(net)), tv_mod)
         tv_losses.append(tv_mod)
 
-    if param.get("temporal_weight", 0) > 0:
-        temporal_mod = ContentLoss(param.temporal_weight, param.normalize_gradients)
+    if args.temporal_weight > 0:
+        temporal_mod = ContentLoss(args.temporal_weight, args.normalize_gradients)
         temporal_mod.name = f"temporal {len(net)}"
         net.add_module(str(len(net)), temporal_mod)
         temporal_losses.append(temporal_mod)
@@ -349,22 +352,22 @@ def load_model(opt, param):
                 net.add_module(str(len(net)), layer)
 
                 if layer_list["C"][c] in content_layers:
-                    if opt.verbose:
+                    if args.verbose:
                         print("Setting up content layer " + str(i) + ": " + str(layer_list["C"][c]))
-                    loss_module = ContentLoss(param.content_weight, param.normalize_gradients)
+                    loss_module = ContentLoss(args.content_weight, args.normalize_gradients)
                     loss_module.name = f"cont {len(net)}"
                     net.add_module(str(len(net)), loss_module)
                     content_losses.append(loss_module)
 
                 if layer_list["C"][c] in style_layers:
-                    if opt.verbose:
+                    if args.verbose:
                         print("Setting up style layer " + str(i) + ": " + str(layer_list["C"][c]))
                     loss_module = StyleLoss(
-                        param.style_weight,
-                        param.use_covariance,
-                        param.normalize_gradients,
-                        video_style_factor=param.get("video_style_factor", 0),
-                        shift_factor=param.get("shift_factor", 0),
+                        args.style_weight,
+                        args.use_covariance,
+                        args.normalize_gradients,
+                        video_style_factor=args.video_style_factor,
+                        shift_factor=args.shift_factor,
                     )
                     loss_module.name = f"style {len(net)}"
                     net.add_module(str(len(net)), loss_module)
@@ -375,23 +378,23 @@ def load_model(opt, param):
                 net.add_module(str(len(net)), layer)
 
                 if layer_list["R"][r] in content_layers:
-                    if opt.verbose:
+                    if args.verbose:
                         print("Setting up content layer " + str(i) + ": " + str(layer_list["R"][r]))
-                    loss_module = ContentLoss(param.content_weight, param.normalize_gradients)
+                    loss_module = ContentLoss(args.content_weight, args.normalize_gradients)
                     loss_module.name = f"cont {len(net)}"
                     net.add_module(str(len(net)), loss_module)
                     content_losses.append(loss_module)
                     next_content_idx += 1
 
                 if layer_list["R"][r] in style_layers:
-                    if opt.verbose:
+                    if args.verbose:
                         print("Setting up style layer " + str(i) + ": " + str(layer_list["R"][r]))
                     loss_module = StyleLoss(
-                        param.style_weight,
-                        param.use_covariance,
-                        param.normalize_gradients,
-                        video_style_factor=param.get("video_style_factor", 0),
-                        shift_factor=param.get("shift_factor", 0),
+                        args.style_weight,
+                        args.use_covariance,
+                        args.normalize_gradients,
+                        video_style_factor=args.video_style_factor,
+                        shift_factor=args.shift_factor,
                     )
                     loss_module.name = f"style {len(net)}"
                     net.add_module(str(len(net)), loss_module)
@@ -402,8 +405,8 @@ def load_model(opt, param):
             if isinstance(layer, nn.MaxPool2d) or isinstance(layer, nn.AvgPool2d):
                 net.add_module(str(len(net)), layer)
 
-    if opt.multidevice:
-        net = setup_multi_device(net, opt.gpu, opt.multidevice_strategy)
+    if args.multidevice:
+        net = setup_multi_device(net, args.gpu, args.multidevice_strategy)
 
     # Freeze the network in order to prevent unnecessary gradient calculations
     for param in net.parameters():
