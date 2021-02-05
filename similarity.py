@@ -15,7 +15,7 @@ import torch
 from sklearn.decomposition import PCA
 from tqdm import tqdm
 
-import canvas
+import style
 import config
 import load
 import models
@@ -86,13 +86,13 @@ def generate_grids():
 
 # generate_grids()
 
-args = config.load_config("config/sim.yaml")
+args = config.load_args("config/sim.json")
 
 for ii, main_im in enumerate(tqdm(images)):
     for imfile in closest[ii]:
         args.style = f"{main_im},{imfile}"
         # print(args.style)
-        canvas.img_img(args)
+        style.img_img(args)
     for imfiles in itertools.combinations(closest[ii], 2):
         args.style = f"{main_im}{','.join(imfiles)}"
-        canvas.img_img(args)
+        style.img_img(args)

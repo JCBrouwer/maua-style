@@ -72,36 +72,19 @@ def save_tensor_to_file(tensor, args, iteration=None, size=None, filename=None):
 
 
 def process_style_images(args):
-    style_image_input = args.style.split(",")
+    style_image_input = args.style
     style_image_list, ext = [], [".jpg", ".jpeg", ".jpg", ".tiff"]
+
     for image in style_image_input:
         if os.path.isdir(image):
             images = (image + "/" + file for file in os.listdir(image) if os.path.splitext(file)[1].lower() in ext)
             style_image_list.extend(images)
         else:
             style_image_list.append(image)
+
     style_images = []
     for image in style_image_list:
         style_images.append(preprocess(image))
-
-    # Handle style blending weights for multiple style inputs
-    style_blend_weights = []
-    # if args.style_blend_weights is False:
-    # Style blending not specified, so use equal weighting
-    for i in style_image_list:
-        style_blend_weights.append(1.0)
-    # else:
-    #     style_blend_weights = [float(x) for x in args.style_blend_weights.split(",")]
-    #     assert len(style_blend_weights) == len(
-    #         style_image_list
-    #     ), "-style_blend_weights and -style_images must have the same number of elements!"
-
-    # Normalize the style blending weights so they sum to 1
-    style_blend_sum = sum(style_blend_weights)
-    for i, blend_weight in enumerate(style_blend_weights):
-        style_blend_weights[i] = blend_weight / style_blend_sum
-
-    args.style_blend_weights = style_blend_weights
 
     return style_images
 
@@ -238,7 +221,7 @@ def write_flow(flow, filename):
 # Combine the Y channel of the generated image and the UV/CbCr channels of the
 # content image to perform color-independent style transfer.
 def original_colors(content, generated):
-    content_channels = list(content.convert("YCbCr").split())
+    content_channels = list(content.resize(generated.size).convert("YCbCr").split())
     generated_channels = list(generated.convert("YCbCr").split())
     content_channels[0] = generated_channels[0]
     return Image.merge("YCbCr", content_channels).convert("RGB")

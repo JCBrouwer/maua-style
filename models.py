@@ -4,11 +4,12 @@ from collections import OrderedDict
 from os import path
 from types import MethodType
 
+import gdown
 import torch
 import torch.nn as nn
 from torch.utils.model_zoo import load_url
 
-import style
+import optim
 from loss import *
 
 
@@ -242,55 +243,84 @@ vgg19_dict = {
 }
 
 
-def select_model(model_file, pooling, verbose):
-    vgg_list = ["fcn32s", "pruning", "sod", "vgg"]
+def select_model(model_file, pooling, verbose, disable_check):
+    vgg_list = ["fcn32s", "prun", "sod", "vgg", "nyud"]
     if any(name in model_file for name in vgg_list):
-        if "pruning" in model_file:
+        if "prun" in model_file:
             if verbose:
                 print("VGG-16 Architecture Detected")
                 print("Using The Channel Pruning Model")
+            if not path.exists(model_file):
+                # print("Model file not found: " + model_file)
+                model_file = "modelzoo/vgg16-prune.pth"
+                if not path.exists(model_file):
+                    gdown.download("https://drive.google.com/uc?id=1aaNqJ5D2A-vev3IZFv6dSkovuA3XwYsq", model_file)
             cnn, layerList = VGG_PRUNED(build_sequential(channel_list["VGG-16p"], pooling)), vgg16_dict
+        elif "nyud" in model_file:
+            if verbose:
+                print("VGG-16 Architecture Detected")
+                print("Using the nyud-fcn32s-color-heavy Model")
+            if not path.exists(model_file):
+                # print("Model file not found: " + model_file)
+                model_file = "modelzoo/nyud-fcn32s-color-heavy.pth"
+                if not path.exists(model_file):
+                    gdown.download("https://drive.google.com/uc?id=1MKj6Dntzh7t45PxM4I0ixWaQtisAg9hy", model_file)
+            cnn, layerList = VGG_FCN32S(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
         elif "fcn32s" in model_file:
             if verbose:
                 print("VGG-16 Architecture Detected")
                 print("Using the fcn32s-heavy-pascal Model")
+            if not path.exists(model_file):
+                # print("Model file not found: " + model_file)
+                model_file = "modelzoo/fcn32s-heavy-pascal.pth"
+                if not path.exists(model_file):
+                    gdown.download("https://drive.google.com/uc?id=1bcAnvfMuuEbJqjaVWIUCD9HUgD1fvxI_", model_file)
             cnn, layerList = VGG_FCN32S(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
         elif "sod" in model_file:
             if verbose:
                 print("VGG-16 Architecture Detected")
-                print("Using The SOD Fintune Model")
+                print("Using The SOD Finetune Model")
+            if not path.exists(model_file):
+                # print("Model file not found: " + model_file)
+                model_file = "modelzoo/vgg16-sod.pth"
+                if not path.exists(model_file):
+                    gdown.download("https://drive.google.com/uc?id=1EU-F9ugeIeTO9ay4PinzsBXgEuCYBu0Z", model_file)
             cnn, layerList = VGG_SOD(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
-        elif "19" in model_file:
+        elif "vgg19" in model_file:
             if verbose:
                 print("VGG-19 Architecture Detected")
             if not path.exists(model_file):
                 # Download the VGG-19 model and fix the layer names
-                print("Model file not found: " + model_file)
-                sd = load_url("https://web.eecs.umich.edu/~justincj/models/vgg19-d01eb7cb.pth")
-                map = {
-                    "classifier.1.weight": "classifier.0.weight",
-                    "classifier.1.bias": "classifier.0.bias",
-                    "classifier.4.weight": "classifier.3.weight",
-                    "classifier.4.bias": "classifier.3.bias",
-                }
-                sd = OrderedDict([(map[k] if k in map else k, v) for k, v in sd.items()])
-                torch.save(sd, path.join("modelzoo", "vgg19-d01eb7cb.pth"))
+                # print("Model file not found: " + model_file)
+                model_file = "modelzoo/vgg19.pth"
+                if not path.exists(model_file):
+                    sd = load_url("https://web.eecs.umich.edu/~justincj/models/vgg19-d01eb7cb.pth")
+                    map = {
+                        "classifier.1.weight": "classifier.0.weight",
+                        "classifier.1.bias": "classifier.0.bias",
+                        "classifier.4.weight": "classifier.3.weight",
+                        "classifier.4.bias": "classifier.3.bias",
+                    }
+                    sd = OrderedDict([(map[k] if k in map else k, v) for k, v in sd.items()])
+                    torch.save(sd, model_file)
             cnn, layerList = VGG(build_sequential(channel_list["VGG-19"], pooling)), vgg19_dict
-        elif "16" in model_file:
+        elif "vgg16" in model_file:
             if verbose:
                 print("VGG-16 Architecture Detected")
             if not path.exists(model_file):
                 # Download the VGG-16 model and fix the layer names
-                print("Model file not found: " + model_file)
-                sd = load_url("https://web.eecs.umich.edu/~justincj/models/vgg16-00b39a1b.pth")
-                map = {
-                    "classifier.1.weight": "classifier.0.weight",
-                    "classifier.1.bias": "classifier.0.bias",
-                    "classifier.4.weight": "classifier.3.weight",
-                    "classifier.4.bias": "classifier.3.bias",
-                }
-                sd = OrderedDict([(map[k] if k in map else k, v) for k, v in sd.items()])
-                torch.save(sd, path.join("modelzoo", "vgg16-00b39a1b.pth"))
+                # print("Model file not found: " + model_file)
+                model_file = "modelzoo/vgg16.pth"
+                if not path.exists(model_file):
+                    sd = load_url("https://web.eecs.umich.edu/~justincj/models/vgg16-00b39a1b.pth")
+                    map = {
+                        "classifier.1.weight": "classifier.0.weight",
+                        "classifier.1.bias": "classifier.0.bias",
+                        "classifier.4.weight": "classifier.3.weight",
+                        "classifier.4.bias": "classifier.3.bias",
+                    }
+                    sd = OrderedDict([(map[k] if k in map else k, v) for k, v in sd.items()])
+                    torch.save(sd, model_file)
             cnn, layerList = VGG(build_sequential(channel_list["VGG-16"], pooling)), vgg16_dict
         else:
             raise ValueError("VGG architecture not recognized.")
@@ -299,25 +329,27 @@ def select_model(model_file, pooling, verbose):
             print("NIN Architecture Detected")
         if not path.exists(model_file):
             # Download the NIN model
-            print("Model file not found: " + model_file)
-            print("Downloading...")
-            urllib.request.urlretrieve(
-                "https://raw.githubusercontent.com/ProGamerGov/pytorch-nin/master/nin_imagenet.pth",
-                path.join("modelzoo", "nin_imagenet.pth"),
-            )
+            # print("Model file not found: " + model_file)
+            model_file = "modelzoo/nin.pth"
+            if not path.exists(model_file):
+                print("Downloading...")
+                urllib.request.urlretrieve(
+                    "https://raw.githubusercontent.com/ProGamerGov/pytorch-nin/master/nin_imagenet.pth", model_file
+                )
         cnn, layerList = NIN(pooling), nin_dict
     else:
         raise ValueError("Model architecture not recognized.")
+
+    cnn.load_state_dict(torch.load(model_file), strict=(not disable_check))
+    if verbose:
+        print("Successfully loaded " + str(model_file))
+
     return cnn, layerList
 
 
 # Load the model, and configure pooling layer type
 def load_model(args):
-    cnn, layer_list = select_model(str(args.model_file).lower(), args.pooling, args.verbose)
-
-    cnn.load_state_dict(torch.load(args.model_file), strict=(not args.disable_check))
-    if args.verbose:
-        print("Successfully loaded " + str(args.model_file))
+    cnn, layer_list = select_model(str(args.model_file).lower(), args.pooling, args.verbose, args.disable_check)
 
     # Maybe convert the model to cuda now, to avoid later issues
     if "c" not in str(args.gpu).lower() or "c" not in str(args.gpu[0]).lower():
