@@ -1,0 +1,12 @@
+[submodule "sniklaus/spynet"]
+	path = sniklaus/spynet
+	url = https://github.com/sniklaus/pytorch-spynet.git
+[submodule "sniklaus/pwc"]
+	path = sniklaus/pwc
+	url = https://github.com/sniklaus/pytorch-pwc.git
+[submodule "sniklaus/unflow"]
+	path = sniklaus/unflow
+	url = https://github.com/sniklaus/pytorch-unflow.git
+[submodule "sniklaus/liteflownet"]
+	path = sniklaus/liteflownet
+	url = https://github.com/sniklaus/pytorch-liteflownet.git

@@ -1,13 +1,14 @@
-import os.path
 import itertools
-from PIL import Image
-import torch as th
-import torchvision.transforms as T
-import numpy as np
-import scipy.ndimage
-import scipy.misc
-import skvideo.io
+import os.path
 
+import numpy as np
+import scipy.misc
+import scipy.ndimage
+import skvideo.io
+import torch as th
+import torch.nn.functional as F
+import torchvision.transforms as T
+from PIL import Image
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # Support gigapixel images
 
@@ -136,10 +137,11 @@ def process_style_videos(args):
 
 # extract frames from video, calculate optical flow in forward and backward direction, save as flo and png files
 def process_content_video(model, args):
-    import flow
     import ffmpeg
 
-    work_dir = args.output_dir + "/" + name(args.content) + "_" + "_".join([name(s) for s in args.style.split(",")])
+    import flow
+
+    work_dir = args.output_dir + "/" + name(args.content) + "_" + "_".join([name(s) for s in args.style])
     frames_dir = work_dir + "/frames/"
     flow_dir = work_dir + "/flow/"
     os.makedirs(work_dir, exist_ok=True)
@@ -178,7 +180,7 @@ def process_content_video(model, args):
     return images
 
 
-def flow_warp_map(filename):
+def flow_warp_map(filename, current_size):
     f = open(filename, "rb")
     magic = np.fromfile(f, np.float32, count=1)
     flow = None
@@ -198,6 +200,9 @@ def flow_warp_map(filename):
     neutral = np.array(np.meshgrid(np.linspace(-1, 1, int(w[0])), np.linspace(-1, 1, int(h[0]))))
     neutral = np.rollaxis(neutral, 0, 3)
     warp_map = th.FloatTensor(neutral + flow).unsqueeze(0)
+    warp_map = F.interpolate(
+        warp_map.permute(0, 3, 1, 2), size=current_size, mode="bilinear", align_corners=False
+    ).permute(0, 2, 3, 1)
     return warp_map
 
 

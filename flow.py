@@ -1,52 +1,78 @@
 import math
+import sys
 import time
+from functools import partial
 
 import numpy as np
 import scipy
 import torch as th
 import torch.nn.functional as F
 from PIL import Image
+from skimage.transform import resize
 
 from utils import info
 
 
+def im2tens(im, h, w):
+    im = resize(im, (h, w))
+    tens = th.FloatTensor(im[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) * (1.0 / 255.0))
+    return tens
+
+
+def predict(model, im1, im2, h, w):
+    h, w, c = im1.shape
+    tens1 = im2tens(im1, h, w)
+    tens2 = im2tens(im2, h, w)
+    model_out = model(tens1, tens2).unsqueeze(0)
+    output = F.interpolate(input=model_out, size=(h, w), mode="bilinear", align_corners=False)[0, :, :, :]
+    return output.cpu().numpy().transpose(1, 2, 0)
+
+
 def get_flow_model(args):
-    # if not args.gpu == "cpu":
-    import unflow
+    models = []
 
-    model = unflow.UnFlow(args.flow_model_dir + "/network-" + args.flow_model_type + ".pytorch").cuda().eval()
-    th.backends.cudnn.enabled = args.backend == "cudnn"
+    if "unflow" in args.flow_model:
+        del sys.argv[1:]
+        sys.path.append("unflow/correlation")
+        from sniklaus.unflow.run import estimate
 
-    def process(im1, im2):
-        tens1 = th.FloatTensor(im1[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0)
-        tens2 = th.FloatTensor(im2[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0)
+        del sys.path[-1]
+        th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
+        models += lambda im1, im2: predict(estimate, im1, im2, h=384, w=1280)
 
-        assert tens1.size(1) == tens2.size(1)
-        assert tens1.size(2) == tens2.size(2)
+    if "pwc" in args.flow_model:
+        del sys.argv[1:]
+        sys.path.append("pwc/correlation")
+        from sniklaus.pwc.run import estimate
 
-        h, w = tens1.size()[1], tens1.size(2)
+        del sys.path[-1]
+        th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
+        models += lambda im1, im2: predict(estimate, im1, im2, h=436, w=1024)
 
-        prep1 = tens1.cuda().view(1, 3, h, w)
-        prep2 = tens2.cuda().view(1, 3, h, w)
+    if "spynet" in args.flow_model:
+        del sys.argv[1:]
+        from sniklaus.spynet.run import estimate
 
-        evenW = int(math.floor(math.ceil(w / 64.0) * 64.0))
-        evenH = int(math.floor(math.ceil(h / 64.0) * 64.0))
+        th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
+        models += lambda im1, im2: predict(estimate, im1, im2, h=416, w=1024)
 
-        prep1 = F.interpolate(input=prep1, size=(evenH, evenW), mode="bilinear", align_corners=False)
-        prep2 = F.interpolate(input=prep2, size=(evenH, evenW), mode="bilinear", align_corners=False)
+    if "liteflownet" in args.flow_model:
+        del sys.argv[1:]
+        sys.path.append("liteflownet/correlation")
+        from sniklaus.liteflownet.run import estimate
 
-        output = F.interpolate(input=model(prep1, prep2), size=(h, w), mode="bilinear", align_corners=False)
-        output[:, 0, :, :] *= float(evenW) / float(w)
-        output[:, 1, :, :] *= float(evenH) / float(h)
-        output = output[0, :, :, :].cpu().numpy().transpose(1, 2, 0)
-        return output
+        del sys.path[-1]
+        th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
+        models += lambda im1, im2: predict(estimate, im1, im2, h=436, w=1024)
 
-    return process
-    # else:
-    #     from thoth.deepmatching import deepmatching
-    #     from thoth.deepflow2 import deepflow2
+    if "deepflow2" in args.flow_model:
+        raise Exception("deepflow2 not working quite yet...")
+        from thoth.deepflow2 import deepflow2
+        from thoth.deepmatching import deepmatching
 
-    #     return lambda im1, im2: deepflow2(im1, im2, deepmatching(im1, im2), "-%s" % (args.flow_model_type_cpu))
+        models += lambda im1, im2: deepflow2(im1, im2, deepmatching(im1, im2), "-%s" % (args.flow_model_type_cpu))
+
+    return lambda im1, im2: sum(model(im1, im2) for model in models)
 
 
 def check_consistency(flow1, flow2):

@@ -146,7 +146,7 @@ def img_vid(args):
 
 
 def vid_img(args):
-    output_dir = args.output_dir + "/" + name(args.content) + "_" + "_".join([name(s) for s in args.style.split(",")])
+    output_dir = args.output_dir + "/" + name(args.content) + "_" + "_".join([name(s) for s in args.style])
 
     flow_model = flow.get_flow_model(args)
     frames = load.process_content_video(flow_model, args)
@@ -206,7 +206,7 @@ def vid_img(args):
                         pastiche = th.randn(content_frames[1].size()).mul(0.001)
                     elif args.init == "prev_warp":
                         flo_file = "%s/flow/forward_%s_%s.flo" % (output_dir, name(prev_frame), name(this_frame))
-                        flow_map = load.flow_warp_map(flo_file)
+                        flow_map = load.flow_warp_map(flo_file, current_size)
                         if pastiche is None:
                             pastiche = content_frames[0]
                         pastiche = F.grid_sample(pastiche, flow_map, padding_mode="border")
@@ -236,7 +236,7 @@ def vid_img(args):
 
                     direction = "forward" if pass_n % 2 == 0 else "backward"
                     flo_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.flo"
-                    flow_map = load.flow_warp_map(flo_file)
+                    flow_map = load.flow_warp_map(flo_file, current_size)
                     flow_map = F.interpolate(
                         flow_map.permute(0, 3, 1, 2), size=pastiche.size()[2:], mode="bilinear"
                     ).permute(0, 2, 3, 1)
