@@ -31,7 +31,7 @@ def predict(model, im1, im2, h, w):
 def get_flow_model(args):
     models = []
 
-    if "unflow" in args.flow_model:
+    if "unflow" in args.flow_models:
         del sys.argv[1:]
         sys.path.append("unflow/correlation")
         from sniklaus.unflow.run import estimate
@@ -40,7 +40,7 @@ def get_flow_model(args):
         th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
         models += lambda im1, im2: predict(estimate, im1, im2, h=384, w=1280)
 
-    if "pwc" in args.flow_model:
+    if "pwc" in args.flow_models:
         del sys.argv[1:]
         sys.path.append("pwc/correlation")
         from sniklaus.pwc.run import estimate
@@ -49,14 +49,14 @@ def get_flow_model(args):
         th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
         models += lambda im1, im2: predict(estimate, im1, im2, h=436, w=1024)
 
-    if "spynet" in args.flow_model:
+    if "spynet" in args.flow_models:
         del sys.argv[1:]
         from sniklaus.spynet.run import estimate
 
         th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
         models += lambda im1, im2: predict(estimate, im1, im2, h=416, w=1024)
 
-    if "liteflownet" in args.flow_model:
+    if "liteflownet" in args.flow_models:
         del sys.argv[1:]
         sys.path.append("liteflownet/correlation")
         from sniklaus.liteflownet.run import estimate
@@ -65,12 +65,12 @@ def get_flow_model(args):
         th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
         models += lambda im1, im2: predict(estimate, im1, im2, h=436, w=1024)
 
-    if "deepflow2" in args.flow_model:
+    if "deepflow2" in args.flow_models:
         raise Exception("deepflow2 not working quite yet...")
         from thoth.deepflow2 import deepflow2
         from thoth.deepmatching import deepmatching
 
-        models += lambda im1, im2: deepflow2(im1, im2, deepmatching(im1, im2), "-%s" % (args.flow_model_type_cpu))
+        models += lambda im1, im2: deepflow2(im1, im2, deepmatching(im1, im2))
 
     return lambda im1, im2: sum(model(im1, im2) for model in models)
 

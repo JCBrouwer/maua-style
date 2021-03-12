@@ -68,9 +68,7 @@ def get_args():
     parser.add_argument("-no_cudnn_autotune", action="store_true")
 
     # video content settings
-    parser.add_argument("-flow_model", type=str, default="unflow")
-    parser.add_argument("-flow_model_dir", type=str, default="../pytorch-unflow/")
-    parser.add_argument("-unflow_model_type", type=str, default="css")
+    parser.add_argument("-flow_models", type=str, default="unflow,pwc,spynet,liteflownet")
     parser.add_argument("-passes_per_scale", type=int, default=4)
     parser.add_argument("-temporal_blend", type=float, default=0.5)
     parser.add_argument("-fps", type=float, default=24)
