@@ -1,6 +1,6 @@
-# Optical flow implementations by @sniklaus
+# Optical flow implementations
 
-A collection of excellent optical flow model reproductions.
+A collection of excellent optical flow model reproductions by Simon Niklaus (@sniklaus).
 Any or all of these models can be used to calculate optical flow for video style transfers.
 Each repository has its own license and terms.
 Make sure to read and adhere to them as well as cite accordingly when using optical flow.
