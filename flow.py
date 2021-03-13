@@ -34,7 +34,6 @@ def get_flow_model(args):
 
     if "unflow" in args.flow_models:
         del sys.argv[1:]
-        sys.path.append("unflow/correlation")
         from sniklaus.unflow.run import estimate as unflow
 
         del sys.path[-1]
@@ -43,7 +42,6 @@ def get_flow_model(args):
 
     if "pwc" in args.flow_models:
         del sys.argv[1:]
-        sys.path.append("pwc/correlation")
         from sniklaus.pwc.run import estimate as pwc
 
         del sys.path[-1]
@@ -59,7 +57,6 @@ def get_flow_model(args):
 
     if "liteflownet" in args.flow_models:
         del sys.argv[1:]
-        sys.path.append("liteflownet/correlation")
         from sniklaus.liteflownet.run import estimate as liteflownet
 
         del sys.path[-1]
