@@ -14,65 +14,66 @@ from utils import info
 
 
 def im2tens(im, h, w):
-    im = resize(im, (h, w))
+    if h is not None and w is not None:
+        im = resize(im, (h, w))
     tens = th.FloatTensor(im[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) * (1.0 / 255.0))
     return tens
 
 
-def predict(model, im1, im2, h, w):
-    h, w, c = im1.shape
-    tens1 = im2tens(im1, h, w)
-    tens2 = im2tens(im2, h, w)
+def predict(model, im1, im2, flowh=None, floww=None):
+    h, w, _ = im1.shape
+    tens1 = im2tens(im1, flowh, floww)
+    tens2 = im2tens(im2, flowh, floww)
     model_out = model(tens1, tens2).unsqueeze(0)
     output = F.interpolate(input=model_out, size=(h, w), mode="bilinear", align_corners=False)[0, :, :, :]
     return output.cpu().numpy().transpose(1, 2, 0)
 
 
 def get_flow_model(args):
-    models = []
+    pred_fns = []
 
     if "unflow" in args.flow_models:
         del sys.argv[1:]
         sys.path.append("unflow/correlation")
-        from sniklaus.unflow.run import estimate
+        from sniklaus.unflow.run import estimate as unflow
 
         del sys.path[-1]
         th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
-        models += lambda im1, im2: predict(estimate, im1, im2, h=384, w=1280)
+        pred_fns.append(lambda im1, im2: predict(unflow, im1, im2))  # , 384, 1280))
 
     if "pwc" in args.flow_models:
         del sys.argv[1:]
         sys.path.append("pwc/correlation")
-        from sniklaus.pwc.run import estimate
+        from sniklaus.pwc.run import estimate as pwc
 
         del sys.path[-1]
         th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
-        models += lambda im1, im2: predict(estimate, im1, im2, h=436, w=1024)
+        pred_fns.append(lambda im1, im2: predict(pwc, im1, im2))  # , 436, 1024))
 
     if "spynet" in args.flow_models:
         del sys.argv[1:]
-        from sniklaus.spynet.run import estimate
+        from sniklaus.spynet.run import estimate as spynet
 
         th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
-        models += lambda im1, im2: predict(estimate, im1, im2, h=416, w=1024)
+        pred_fns.append(lambda im1, im2: predict(spynet, im1, im2))  # , 416, 1024))
 
     if "liteflownet" in args.flow_models:
         del sys.argv[1:]
         sys.path.append("liteflownet/correlation")
-        from sniklaus.liteflownet.run import estimate
+        from sniklaus.liteflownet.run import estimate as liteflownet
 
         del sys.path[-1]
         th.set_grad_enabled(True)  # estimate run.py disables grads, so re-enable right away
-        models += lambda im1, im2: predict(estimate, im1, im2, h=436, w=1024)
+        pred_fns.append(lambda im1, im2: predict(liteflownet, im1, im2))  # , 436, 1024))
 
     if "deepflow2" in args.flow_models:
         raise Exception("deepflow2 not working quite yet...")
         from thoth.deepflow2 import deepflow2
         from thoth.deepmatching import deepmatching
 
-        models += lambda im1, im2: deepflow2(im1, im2, deepmatching(im1, im2))
+        models.append(lambda im1, im2: deepflow2(im1, im2, deepmatching(im1, im2)))
 
-    return lambda im1, im2: sum(model(im1, im2) for model in models)
+    return lambda im1, im2: np.sum(pred(im1, im2) for pred in pred_fns) / len(pred_fns)
 
 
 def check_consistency(flow1, flow2):
