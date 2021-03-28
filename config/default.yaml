@@ -1,7 +1,7 @@
 input:
-  content: examples/content.jpg
-  style: examples/style.jpg
-  output: pastiche.jpg
+  content: examples/content.png
+  style: examples/style.png
+  output: pastiche.png
   init: random
   style_blend_weights: False
   style_scale: 1.0

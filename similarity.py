@@ -81,7 +81,7 @@ def generate_grids():
                 grid.paste(im, (i, j))
                 index += 1
 
-        grid.save(f"{dataset_folder}/grids/{images[ii].split('/')[-1].split('.')[0]}.jpg")
+        grid.save(f"{dataset_folder}/grids/{images[ii].split('/')[-1].split('.')[0]}.png")
 
 
 # generate_grids()

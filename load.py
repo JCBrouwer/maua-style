@@ -69,12 +69,12 @@ def save_tensor_to_file(tensor, args, iteration=None, size=None, filename=None):
         img = deprocess(tensor.clone())
         if args.original_colors == 1:
             img = original_colors(deprocess(preprocess(args.content)), img)
-        img.save(f"{filename}.jpg")
+        img.save(f"{filename}.png")
 
 
 def process_style_images(args):
     style_image_input = args.style
-    style_image_list, ext = [], [".jpg", ".jpeg", ".jpg", ".tiff"]
+    style_image_list, ext = [], [".png", ".jpeg", ".jpg", ".tiff"]
 
     for image in style_image_input:
         if os.path.isdir(image):
@@ -149,13 +149,13 @@ def process_content_video(model, args):
     os.makedirs(flow_dir, exist_ok=True)
 
     if len(os.listdir(frames_dir)) == 0:
-        ffmpeg.input(args.content).output(frames_dir + "/%05d.jpg").run()
+        ffmpeg.input(args.content).output(frames_dir + "/%05d.png").run()
 
     with th.no_grad():
-        images = [frames_dir + file for file in sorted(os.listdir(frames_dir)) if ".jpg" in file and "_" not in file]
+        images = [frames_dir + file for file in sorted(os.listdir(frames_dir)) if ".png" in file and "_" not in file]
         images.append(images[0])
         for img_file1, img_file2 in zip(*(itertools.islice(images, i, None) for i in range(2))):
-            if os.path.isfile("%s/backward_%s_%s.jpg" % (flow_dir, name(img_file2), name(img_file1))):
+            if os.path.isfile("%s/backward_%s_%s.png" % (flow_dir, name(img_file2), name(img_file1))):
                 continue
             img1 = np.array(Image.open(img_file1))
             img2 = np.array(Image.open(img_file2))
@@ -166,13 +166,19 @@ def process_content_video(model, args):
             backward_flow = model(img2, img1)
             write_flow(backward_flow, "%s/backward_%s_%s.flo" % (flow_dir, name(img_file2), name(img_file1)))
 
-            reliable_flow_arr = flow.check_consistency(forward_flow, backward_flow)
-            reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
-            reliable_flow_img.save("%s/forward_%s_%s.jpg" % (flow_dir, name(img_file1), name(img_file2)))
+            if args.no_check_occlusion:
+                reliable_flow_img = Image.fromarray(flow.flow_to_image(forward_flow)).convert("L")
+            else:
+                reliable_flow_arr = flow.check_consistency(forward_flow, backward_flow)
+                reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
+            reliable_flow_img.save("%s/forward_%s_%s.png" % (flow_dir, name(img_file1), name(img_file2)))
 
-            reliable_flow_arr = flow.check_consistency(backward_flow, forward_flow)
-            reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
-            reliable_flow_img.save("%s/backward_%s_%s.jpg" % (flow_dir, name(img_file2), name(img_file1)))
+            if args.no_check_occlusion:
+                reliable_flow_img = Image.fromarray(flow.flow_to_image(backward_flow)).convert("L")
+            else:
+                reliable_flow_arr = flow.check_consistency(backward_flow, forward_flow)
+                reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
+            reliable_flow_img.save("%s/backward_%s_%s.png" % (flow_dir, name(img_file2), name(img_file1)))
 
             print("processed optical flow: %s <---> %s" % (name(img_file1), name(img_file2)))
 

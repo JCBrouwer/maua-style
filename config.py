@@ -69,6 +69,7 @@ def get_args():
 
     # video content settings
     parser.add_argument("-flow_models", type=str, default="unflow,pwc,spynet,liteflownet")
+    parser.add_argument("-no_check_occlusion", action="store_true")
     parser.add_argument("-passes_per_scale", type=int, default=4)
     parser.add_argument("-temporal_blend", type=float, default=0.5)
     parser.add_argument("-fps", type=float, default=24)

@@ -30,8 +30,8 @@ def img_img(args):
 
     for (current_size, num_iters) in zip(args.image_sizes, args.num_iters):
         print("\nCurrent size {}px".format(current_size))
-        if os.path.exists(f"{args.output}_{current_size}.jpg"):
-            pastiche = load.preprocess(f"{args.output}_{current_size}.jpg")
+        if os.path.exists(f"{args.output}_{current_size}.png"):
+            pastiche = load.preprocess(f"{args.output}_{current_size}.png")
             continue
 
         # scale content image
@@ -161,12 +161,13 @@ def vid_img(args):
 
         # scale style images
         style_images = []
-        content_area = content_size[0] * content_size[1]
+        content_area = content_scale ** 2 * content_size[0] * content_size[1]
         for img in style_images_big:
             style_scale = math.sqrt(content_area / (img.size(3) * img.size(2))) * args.style_scale
             style_images.append(
                 F.interpolate(th.clone(img), scale_factor=style_scale, mode="bilinear", align_corners=False)
             )
+            print(style_images[-1].shape)
 
         if current_size <= 1024:
             args.gpu = 0
@@ -182,7 +183,7 @@ def vid_img(args):
             pastiche = None
             for (prev_frame, this_frame) in zip(frames, frames[1:] + frames[:1]):
                 # TODO add update_style() function to support changing styles per frame
-                args.output = "%s/%s/%s_%s.jpg" % (output_dir, current_size, pass_n + 1, name(this_frame))
+                args.output = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n + 1, name(this_frame))
                 if os.path.isfile(args.output):
                     print("Skipping pass: %s, frame: %s. File already exists." % (pass_n + 1, name(this_frame)))
                     continue
@@ -216,12 +217,12 @@ def vid_img(args):
                     if pass_n == 0:
                         # load images from last pass of previous size
                         if pastiche is None:
-                            ifile = "%s/%s/%s_%s.jpg" % (output_dir, prev_size, args.passes_per_scale, name(prev_frame))
+                            ifile = "%s/%s/%s_%s.png" % (output_dir, prev_size, args.passes_per_scale, name(prev_frame))
                             pastiche = load.preprocess(ifile)
                             pastiche = F.interpolate(
                                 pastiche, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
                             )
-                        bfile = "%s/%s/%s_%s.jpg" % (output_dir, prev_size, args.passes_per_scale, name(this_frame))
+                        bfile = "%s/%s/%s_%s.png" % (output_dir, prev_size, args.passes_per_scale, name(this_frame))
                         blend_image = load.preprocess(bfile)
                         blend_image = F.interpolate(
                             blend_image, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
@@ -229,9 +230,9 @@ def vid_img(args):
                     else:
                         # load images from previous pass of current size
                         if pastiche is None:
-                            ifile = "%s/%s/%s_%s.jpg" % (output_dir, current_size, pass_n, name(prev_frame))
+                            ifile = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n, name(prev_frame))
                             pastiche = load.preprocess(ifile)
-                        bfile = "%s/%s/%s_%s.jpg" % (output_dir, current_size, pass_n, name(this_frame))
+                        bfile = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n, name(this_frame))
                         blend_image = load.preprocess(bfile)
 
                     direction = "forward" if pass_n % 2 == 0 else "backward"
@@ -243,7 +244,7 @@ def vid_img(args):
 
                     warp_image = F.grid_sample(pastiche, flow_map, padding_mode="border")
 
-                    flow_weight_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.jpg"
+                    flow_weight_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.png"
                     reliable_flow = load.reliable_flow_weighting(flow_weight_file)
                     reliable_flow = F.interpolate(
                         reliable_flow, size=pastiche.size()[2:], mode="bilinear", align_corners=False
@@ -270,16 +271,16 @@ def vid_img(args):
             frames = frames[7:] + frames[:7]  # rotate frames
             frames = list(reversed(frames))
 
-        ffmpeg.input(output_dir + "/" + str(current_size) + "/" + str(pass_n) + "_%05d.jpg").output(
+        ffmpeg.input(output_dir + "/" + str(current_size) + "/" + str(pass_n) + "_%05d.png").output(
             "%s/%s_%s.mp4" % (output_dir, name(output_dir), current_size), **args.ffmpeg
         ).overwrite_output().run()
         prev_size = current_size
         del net
         th.cuda.empty_cache()
 
-    ffmpeg.input(f"{output_dir}/{current_size}/{pass_n}_%05d.jpg").output(
-        args.output, **args.ffmpeg
-    ).overwrite_output().run()
+    # ffmpeg.input(f"{output_dir}/{current_size}/{pass_n}_%05d.png").output(
+    #     args.output, **args.ffmpeg
+    # ).overwrite_output().run()
 
 
 if __name__ == "__main__":
