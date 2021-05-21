@@ -1,4 +1,5 @@
 import gc
+import json
 import math
 import os.path
 import sys
@@ -89,25 +90,25 @@ def set_style_video_targets(net, style_videos, args):
         j.mode = "none"
 
 
+def set_model_args(args, current_size):
+    with open(args.scaling_args, "r") as f:
+        scaling = json.load(f)
+
+    found = False
+    for size, params in scaling.items():
+        if int(size) < current_size:
+            continue  # skip options for sizes smaller than the current size
+        if len(args.gpu.split(",")) < len(params["gpu"].split(",")):
+            continue  # skip options which require more gpus than available
+        found = True
+        break
+    if not found:
+        print("Warning: no model configuration found for this size, out of memory error is likely...")
+    for key, param in params.items():
+        args.__dict__[key] = param
+
+
 def optimize(content, styles, init, num_iters, args, net=None, losses=None):
-    # if args.automultiscale:
-    #     if init.numel() <= (5 if args.transfer_type == "img_vid" else 1) * 1664 * 1664 * 3:
-    #         args.gpu = 0
-    #         args.multidevice = False
-    #     elif init.numel() <= (5 if args.transfer_type == "img_vid" else 1) * 2048 * 2048 * 3:
-    #         args.gpu = "0,1"
-    #         args.multidevice = True
-    #         args.tv_weight = 0
-    #         args.model_file = "modelzoo/vgg16-00b39a1b.pth"
-    #         args.optimizer = "adam"
-    #     else:
-    #         args.model_file = "modelzoo/nin_imagenet.pth"
-    #         args.style_layers = "relu1,relu3,relu5,relu7,relu9,relu11"
-    #         args.content_layers = "relu8"
-    #         args.optimizer = "adam"
-    #     args.num_iters = num_iters
-    #     if args.transfer_type == "img_img":
-    #         args.print_iter = num_iters // 4
 
     # TODO make work for spatial tiling as well
     if "_vid" in args.transfer_type:
@@ -124,6 +125,7 @@ def optimize(content, styles, init, num_iters, args, net=None, losses=None):
         windows = [[0]] * len(styles)
 
     if net is None or losses is None:
+        set_model_args(args, max(*init.shape))
         net, losses = models.load_model(args)
 
     if not args.verbose:

@@ -1,9 +1,7 @@
-import gc
+import glob
 import math
 import os.path
-import re
-import traceback
-import uuid
+import random
 
 import ffmpeg
 import numpy as np
@@ -16,7 +14,7 @@ import flow
 import load
 import models
 import optim
-from utils import info, match_histogram, name
+from utils import match_histogram, name
 
 
 def img_img(args):
@@ -155,6 +153,12 @@ def vid_img(args):
     style_images_big = load.process_style_images(args)
 
     for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.num_iters)):
+
+        if len(glob.glob("%s/%s/*.png" % (output_dir, args.image_sizes[size_n + 1]))) > 1:
+            print("Skipping size: %s, already done." % current_size)
+            prev_size = current_size
+            continue
+
         print("\nCurrent size {}px".format(current_size))
         os.makedirs(output_dir + "/" + str(current_size), exist_ok=True)
         content_scale = current_size / max(*content_size)
@@ -167,26 +171,32 @@ def vid_img(args):
             style_images.append(
                 F.interpolate(th.clone(img), scale_factor=style_scale, mode="bilinear", align_corners=False)
             )
-            print(style_images[-1].shape)
 
-        if current_size <= 1024:
-            args.gpu = 0
-            args.multidevice = False
-        else:
-            args.gpu = "0,1"
-            args.multidevice = True
-            args.tv_weight = 0
+        optim.set_model_args(args, current_size)
         net, losses = models.load_model(args)
         # optim.set_style_targets(net, style_images, args)
 
         for pass_n in range(args.passes_per_scale):
             pastiche = None
-            for (prev_frame, this_frame) in zip(frames, frames[1:] + frames[:1]):
+
+            if args.loop:
+                start_idx = random.randrange(0, len(frames) - 1)
+                frames = frames[start_idx:] + frames[:start_idx]  # rotate frames
+
+            if len(glob.glob("%s/%s/%s_*.png" % (output_dir, current_size, pass_n + 2))) > 1:
+                print(f"Skipping pass: {pass_n + 1}, already done.")
+                continue
+
+            for n, (prev_frame, this_frame) in enumerate(
+                zip(frames + frames[: 11 if args.loop else 1], frames[1:] + frames[: 10 if args.loop else 1])
+            ):
                 # TODO add update_style() function to support changing styles per frame
+
                 args.output = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n + 1, name(this_frame))
-                if os.path.isfile(args.output):
+                if os.path.isfile(args.output) and not n >= len(frames):
                     print("Skipping pass: %s, frame: %s. File already exists." % (pass_n + 1, name(this_frame)))
                     continue
+
                 print("Optimizing... size: %s, pass: %s, frame: %s" % (current_size, pass_n + 1, name(this_frame)))
 
                 content_frames = [
@@ -206,10 +216,10 @@ def vid_img(args):
                     if args.init == "random":
                         pastiche = th.randn(content_frames[1].size()).mul(0.001)
                     elif args.init == "prev_warp":
-                        flo_file = "%s/flow/forward_%s_%s.flo" % (output_dir, name(prev_frame), name(this_frame))
-                        flow_map = load.flow_warp_map(flo_file, current_size)
                         if pastiche is None:
                             pastiche = content_frames[0]
+                        flo_file = "%s/flow/forward_%s_%s.flo" % (output_dir, name(prev_frame), name(this_frame))
+                        flow_map = load.flow_warp_map(flo_file, pastiche.shape[2:])
                         pastiche = F.grid_sample(pastiche, flow_map, padding_mode="border")
                     else:
                         pastiche = content_frames[1].clone()
@@ -217,12 +227,22 @@ def vid_img(args):
                     if pass_n == 0:
                         # load images from last pass of previous size
                         if pastiche is None:
-                            ifile = "%s/%s/%s_%s.png" % (output_dir, prev_size, args.passes_per_scale, name(prev_frame))
+                            ifile = "%s/%s/%s_%s.png" % (
+                                output_dir,
+                                prev_size if n <= len(frames) else current_size,
+                                args.passes_per_scale if n <= len(frames) else pass_n + 1,
+                                name(prev_frame),
+                            )
                             pastiche = load.preprocess(ifile)
                             pastiche = F.interpolate(
                                 pastiche, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
                             )
-                        bfile = "%s/%s/%s_%s.png" % (output_dir, prev_size, args.passes_per_scale, name(this_frame))
+                        bfile = "%s/%s/%s_%s.png" % (
+                            output_dir,
+                            prev_size if n <= len(frames) else current_size,
+                            args.passes_per_scale if n <= len(frames) else pass_n + 1,
+                            name(this_frame),
+                        )
                         blend_image = load.preprocess(bfile)
                         blend_image = F.interpolate(
                             blend_image, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
@@ -230,17 +250,24 @@ def vid_img(args):
                     else:
                         # load images from previous pass of current size
                         if pastiche is None:
-                            ifile = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n, name(prev_frame))
+                            ifile = "%s/%s/%s_%s.png" % (
+                                output_dir,
+                                current_size,
+                                pass_n if n <= len(frames) else pass_n + 1,
+                                name(prev_frame),
+                            )
                             pastiche = load.preprocess(ifile)
-                        bfile = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n, name(this_frame))
+                        bfile = "%s/%s/%s_%s.png" % (
+                            output_dir,
+                            current_size,
+                            pass_n if n <= len(frames) else pass_n + 1,
+                            name(this_frame),
+                        )
                         blend_image = load.preprocess(bfile)
 
                     direction = "forward" if pass_n % 2 == 0 else "backward"
                     flo_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.flo"
-                    flow_map = load.flow_warp_map(flo_file, current_size)
-                    flow_map = F.interpolate(
-                        flow_map.permute(0, 3, 1, 2), size=pastiche.size()[2:], mode="bilinear"
-                    ).permute(0, 2, 3, 1)
+                    flow_map = load.flow_warp_map(flo_file, pastiche.shape[2:])
 
                     warp_image = F.grid_sample(pastiche, flow_map, padding_mode="border")
 
@@ -267,8 +294,7 @@ def vid_img(args):
                     disp = load.original_colors(load.deprocess(content_frames[1].clone()), disp)
                 disp.save(str(args.output))
 
-            # clean up / prepare for next pass
-            frames = frames[7:] + frames[:7]  # rotate frames
+            # reverse frames for next pass
             frames = list(reversed(frames))
 
         ffmpeg.input(output_dir + "/" + str(current_size) + "/" + str(pass_n) + "_%05d.png").output(

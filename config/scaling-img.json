@@ -1,0 +1,48 @@
+{
+    "1456": {
+        "model_file": "vgg19",
+        "optimizer": "lbfgs",
+        "multidevice": false,
+        "gpu": "0"
+    },
+    "2448": {
+        "model_file": "vgg19",
+        "optimizer": "adam",
+        "multidevice": false,
+        "gpu": "0"
+    },
+    "2656": {
+        "model_file": "vgg19",
+        "optimizer": "adam",
+        "multidevice": true,
+        "gpu": "0,1"
+    },
+    "3760": {
+        "model_file": "prune",
+        "optimizer": "adam",
+        "multidevice": false,
+        "gpu": "0"
+    },
+    "4096": {
+        "model_file": "prune",
+        "optimizer": "adam",
+        "multidevice": true,
+        "gpu": "0,1"
+    },
+    "5312": {
+        "model_file": "nin",
+        "style_layers": "relu1,relu3,relu5,relu7,relu9,relu11",
+        "content_layers": "relu8",
+        "optimizer": "adam",
+        "multidevice": false,
+        "gpu": "0"
+    },
+    "6896": {
+        "model_file": "nin",
+        "style_layers": "relu1,relu3,relu5,relu7,relu9,relu11",
+        "content_layers": "relu8",
+        "optimizer": "adam",
+        "multidevice": true,
+        "gpu": "0,1"
+    }
+}

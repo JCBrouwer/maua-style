@@ -1,0 +1,47 @@
+{
+    "256": {
+        "content_weight": 10.0,
+        "temporal_weight": 50.0,
+        "temporal_blend": 0.5,
+        "model_file": "vgg19",
+        "optimizer": "lbfgs",
+        "multidevice": false,
+        "gpu": "0"
+    },
+    "512": {
+        "content_weight": 1.0,
+        "temporal_weight": 40.0,
+        "temporal_blend": 0.25,
+        "model_file": "vgg19",
+        "optimizer": "lbfgs",
+        "multidevice": false,
+        "gpu": "0"
+    },
+    "1024": {
+        "content_weight": 0.0,
+        "temporal_weight": 30.0,
+        "temporal_blend": 0.1,
+        "model_file": "vgg19",
+        "optimizer": "lbfgs",
+        "multidevice": false,
+        "gpu": "0"
+    },
+    "1448": {
+        "content_weight": 0.0,
+        "temporal_weight": 10.0,
+        "temporal_blend": 0.0,
+        "model_file": "vgg19",
+        "optimizer": "lbfgs",
+        "multidevice": false,
+        "gpu": "0"
+    },
+    "2048": {
+        "content_weight": 0.0,
+        "temporal_weight": 1.0,
+        "temporal_blend": 0.0,
+        "model_file": "vgg19",
+        "optimizer": "adam",
+        "multidevice": false,
+        "gpu": "0"
+    }
+}

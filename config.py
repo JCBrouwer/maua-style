@@ -17,15 +17,10 @@ def get_args():
     parser.add_argument("-style", help="Style target image", nargs="*")
     parser.add_argument("-init", type=str, default="random")
     parser.add_argument("-seed", type=int, default=-1)
-    parser.add_argument(
-        "-automultiscale",
-        action="store_true",
-        help="automatic multi-network multi-scale model-parallel configuration for 2x 11 GB GPUs",
-    )
 
     # main parameters
     parser.add_argument("-image_sizes", default="256,512,724")
-    parser.add_argument("-num_iters", default="500,300,100")
+    parser.add_argument("-num_iters", default="500,400,300")
     parser.add_argument("-content_weight", type=float, default=5)
     parser.add_argument("-temporal_weight", type=float, default=50)
     parser.add_argument("-style_weight", type=float, default=100)
@@ -71,6 +66,7 @@ def get_args():
     parser.add_argument("-flow_models", type=str, default="unflow,pwc,spynet,liteflownet")
     parser.add_argument("-no_check_occlusion", action="store_true")
     parser.add_argument("-passes_per_scale", type=int, default=4)
+    parser.add_argument("-loop", action="store_true")
     parser.add_argument("-temporal_blend", type=float, default=0.5)
     parser.add_argument("-fps", type=float, default=24)
 
@@ -87,9 +83,16 @@ def get_args():
     parser.add_argument("-save_iter", type=int, default=0)
     parser.add_argument("-save_args", action="store_true")
     parser.add_argument("-load_args", type=str, default=None)
+    parser.add_argument("-ffmpeg_args", type=str, default="config/ffmpeg-libx264")
+    parser.add_argument(
+        "-scaling_args",
+        type=str,
+        default="config/scaling-2x11GB",
+        help="multi-network multi-scale model-parallel configuration",
+    )
     parser.add_argument("-uniq", action="store_true")
 
-    args, ffargs = parser.parse_known_args()
+    args = parser.parse_args()
 
     output = f"{name(args.content)}_{'_'.join([name(s) for s in args.style])}"
     if args.uniq:
@@ -120,7 +123,11 @@ def get_args():
     args.output = f"{args.output_dir}/{output}"
 
     args = postprocess(args)
-    args = handle_ffmpeg(args, ffargs)
+
+    with open(args.ffmpeg_args, "r") as f:
+        ffargs = json.load(f)
+    ffargs["framerate"] = args.fps
+    args.ffmpeg = ffargs
 
     return args
 
@@ -132,6 +139,8 @@ def postprocess(args):
 
     args.image_sizes = [int(s) for s in ("" + args.image_sizes).split(",")]
     args.num_iters = [int(s) for s in ("" + args.num_iters).split(",")]
+
+    print(args.image_sizes, args.num_iters)
     assert len(args.image_sizes) == len(
         args.num_iters
     ), "-image_sizes and -num_iters must have the same number of elements!"
@@ -140,7 +149,10 @@ def postprocess(args):
     style_blend_weights = []
     if args.style_blend_weights is None:
         # Style blending not specified, so use equal weighting
-        for i in args.style:
+        if args.style is not None:
+            for i in args.style:
+                style_blend_weights.append(1.0)
+        else:
             style_blend_weights.append(1.0)
     else:
         style_blend_weights = [float(x) for x in args.style_blend_weights.split(",")]
@@ -155,13 +167,6 @@ def postprocess(args):
 
     args.dtype, args.multidevice, args.backward_device = setup_gpu(args)
 
-    return args
-
-
-def handle_ffmpeg(args, ffargs):
-    ffargs = {k: v for k, v in zip(ffargs[::2], ffargs[1::2])}
-    # ffargs["-r"] = args.fps
-    args.ffmpeg = ffargs
     return args
 
 
@@ -206,13 +211,14 @@ def setup_gpu(args):
 
 def load_args(filepath):
     args = argparse.Namespace()
-    with open("config/img_img_2x11GB.json", "r") as f:
+    with open(filepath, "r") as f:
         args.__dict__ = json.load(f)
 
-    output = f"{name(args.content)}_{'_'.join([name(s) for s in args.style])}"
-    if args.uniq:
-        output += f"_{str(uuid.uuid4())[:6]}"
-    args.output = f"{args.output_dir}/{output}"
+    if not args.content is None and not args.style is None:
+        output = f"{name(args.content)}_{'_'.join([name(s) for s in args.style])}"
+        if args.uniq:
+            output += f"_{str(uuid.uuid4())[:6]}"
+        args.output = f"{args.output_dir}/{output}"
 
     args = postprocess(args)
     # args = handle_ffmpeg(args, ffargs) TODO

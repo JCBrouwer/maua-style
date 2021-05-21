@@ -1,0 +1,7 @@
+{
+    "vcodec": "hevc_nvenc",
+    "c:v": "hevc_nvenc",
+    "preset": "slow",
+    "b:v": "20M",
+    "pix_fmt": "yuv420p"
+}
