@@ -19,8 +19,8 @@ def get_args():
     parser.add_argument("-seed", type=int, default=-1)
 
     # main parameters
-    parser.add_argument("-image_sizes", default="256,512,724")
-    parser.add_argument("-num_iters", default="500,400,300")
+    parser.add_argument("-image_sizes", default="256,512,724,1024,1448")
+    parser.add_argument("-num_iters", default="500,400,300,200,100")
     parser.add_argument("-content_weight", type=float, default=5)
     parser.add_argument("-temporal_weight", type=float, default=50)
     parser.add_argument("-style_weight", type=float, default=100)
@@ -83,7 +83,7 @@ def get_args():
     parser.add_argument("-save_iter", type=int, default=0)
     parser.add_argument("-save_args", action="store_true")
     parser.add_argument("-load_args", type=str, default=None)
-    parser.add_argument("-ffmpeg_args", type=str, default="config/ffmpeg-libx264")
+    parser.add_argument("-ffmpeg_args", type=str, default="config/ffmpeg-libx264.json")
     parser.add_argument(
         "-scaling_args",
         type=str,
@@ -103,31 +103,33 @@ def get_args():
             json.dump(args.__dict__, f, indent=2)
 
     if args.load_args is not None:
+        # load from file
+        file_args = argparse.Namespace()
+        with open(args.load_args, "r") as f:
+            file_args.__dict__ = json.load(f)
+
         # store any specified cmdline arguments
         non_default = {}
         argdict = vars(args)
         for key in vars(args):
             if argdict[key] != parser.get_default(key):
                 non_default[key] = argdict[key]
-
-        # load from file
-        arg_file = args.load_args
-        args = argparse.Namespace()
-        with open(arg_file, "r") as f:
-            args.__dict__ = json.load(f)
+            if key not in file_args:
+                non_default[key] = argdict[key]
 
         # override with non-default arguments
         for key in non_default:
-            setattr(args, key, non_default[key])
+            setattr(file_args, key, non_default[key])
+        args = file_args
 
     args.output = f"{args.output_dir}/{output}"
-
-    args = postprocess(args)
 
     with open(args.ffmpeg_args, "r") as f:
         ffargs = json.load(f)
     ffargs["framerate"] = args.fps
     args.ffmpeg = ffargs
+
+    args = postprocess(args)
 
     return args
 
@@ -140,7 +142,6 @@ def postprocess(args):
     args.image_sizes = [int(s) for s in ("" + args.image_sizes).split(",")]
     args.num_iters = [int(s) for s in ("" + args.num_iters).split(",")]
 
-    print(args.image_sizes, args.num_iters)
     assert len(args.image_sizes) == len(
         args.num_iters
     ), "-image_sizes and -num_iters must have the same number of elements!"
