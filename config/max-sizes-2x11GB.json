@@ -1,0 +1,122 @@
+{
+    "vgg19+lbfgs+1": {
+        "safe_max_size": 1448.0,
+        "true_max_size": 1579.0551968992932,
+        "iters_b4_oom": 92
+    },
+    "vgg16+lbfgs+1": {
+        "safe_max_size": 1448.0,
+        "true_max_size": 1579.0551968992932,
+        "iters_b4_oom": 96
+    },
+    "sod+lbfgs+1": {
+        "safe_max_size": 1448.0,
+        "true_max_size": 1579.0551968992932,
+        "iters_b4_oom": 95
+    },
+    "nyud+lbfgs+1": {
+        "safe_max_size": 1448.0,
+        "true_max_size": 1579.0551968992932,
+        "iters_b4_oom": 95
+    },
+    "prune+lbfgs+1": {
+        "safe_max_size": 1327.8218545603638,
+        "true_max_size": 1448.0,
+        "iters_b4_oom": 0
+    },
+    "nin+lbfgs+1": {
+        "safe_max_size": 1721.9719025239401,
+        "true_max_size": 1877.8236751346622,
+        "iters_b4_oom": 88
+    },
+    "vgg19+adam+1": {
+        "safe_max_size": 2435.236018574758,
+        "true_max_size": 2655.6437091207285,
+        "iters_b4_oom": 0
+    },
+    "vgg16+adam+1": {
+        "safe_max_size": 2435.236018574758,
+        "true_max_size": 2655.6437091207285,
+        "iters_b4_oom": 0
+    },
+    "sod+adam+1": {
+        "safe_max_size": 2435.236018574758,
+        "true_max_size": 2655.6437091207285,
+        "iters_b4_oom": 0
+    },
+    "nyud+adam+1": {
+        "safe_max_size": 2435.236018574758,
+        "true_max_size": 2655.6437091207285,
+        "iters_b4_oom": 0
+    },
+    "prune+adam+1": {
+        "safe_max_size": 3755.6473502693257,
+        "true_max_size": 4095.5624766324854,
+        "iters_b4_oom": 0
+    },
+    "nin+adam+1": {
+        "safe_max_size": 5311.287418241459,
+        "true_max_size": 5792.000000000004,
+        "iters_b4_oom": 2
+    },
+    "vgg19+lbfgs+2": {
+        "safe_max_size": 1579.0551968992932,
+        "true_max_size": 1721.9719025239401,
+        "iters_b4_oom": 94
+    },
+    "vgg16+lbfgs+2": {
+        "safe_max_size": 1579.0551968992932,
+        "true_max_size": 1721.9719025239401,
+        "iters_b4_oom": 93
+    },
+    "sod+lbfgs+2": {
+        "safe_max_size": 1579.0551968992932,
+        "true_max_size": 1721.9719025239401,
+        "iters_b4_oom": 93
+    },
+    "nyud+lbfgs+2": {
+        "safe_max_size": 1579.0551968992932,
+        "true_max_size": 1721.9719025239401,
+        "iters_b4_oom": 93
+    },
+    "prune+lbfgs+2": {
+        "safe_max_size": 1877.8236751346622,
+        "true_max_size": 2047.7812383162418,
+        "iters_b4_oom": 84
+    },
+    "nin+lbfgs+2": {
+        "safe_max_size": 1721.9719025239401,
+        "true_max_size": 1877.8236751346622,
+        "iters_b4_oom": 64
+    },
+    "vgg19+adam+2": {
+        "safe_max_size": 2655.6437091207285,
+        "true_max_size": 2896.000000000001,
+        "iters_b4_oom": 0
+    },
+    "vgg16+adam+2": {
+        "safe_max_size": 2655.6437091207285,
+        "true_max_size": 2896.000000000001,
+        "iters_b4_oom": 0
+    },
+    "sod+adam+2": {
+        "safe_max_size": 2655.6437091207285,
+        "true_max_size": 2896.000000000001,
+        "iters_b4_oom": 0
+    },
+    "nyud+adam+2": {
+        "safe_max_size": 2655.6437091207285,
+        "true_max_size": 2896.000000000001,
+        "iters_b4_oom": 0
+    },
+    "prune+adam+2": {
+        "safe_max_size": 4095.5624766324854,
+        "true_max_size": 4466.242550381399,
+        "iters_b4_oom": 0
+    },
+    "nin+adam+2": {
+        "safe_max_size": 6887.887610095765,
+        "true_max_size": 7511.294700538653,
+        "iters_b4_oom": 0
+    }
+}

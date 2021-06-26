@@ -125,23 +125,23 @@ def match_histogram(target_tensor, source_tensor, eps=1e-2, mode="avg"):
     return output_tensor
 
 
-def determine_scaling(opt):
-    def opt_to_ints(scales, scaling, num):
-        scales = ("" + scales).split(",")
-        if len(scales) == 2:
-            up = max(float(scales[1]), float(scales[0]))
-            low = min(float(scales[1]), float(scales[0]))
-            if scaling == "linear":
-                scales = [int(low + i * (up - low) / (num - 1)) for i in range(num)]
-            elif scaling == "power":
-                factor = (up / low) ** (1 / (num - 1))
-                scales = [int(round(low * factor ** i)) for i in range(num)]
-            else:
-                print("Scaling type: " + str(scaling) + " not recognized. Options are: [linear, power]")
-        else:
-            scales = [int(s) for s in scales]
-        return scales
+# def determine_scaling(args):
+#     def opt_to_ints(scales, scaling, num):
+#         scales = ("" + scales).split(",")
+#         if len(scales) == 2:
+#             up = max(float(scales[1]), float(scales[0]))
+#             low = min(float(scales[1]), float(scales[0]))
+#             if scaling == "linear":
+#                 scales = [int(low + i * (up - low) / (num - 1)) for i in range(num)]
+#             elif scaling == "power":
+#                 factor = (up / low) ** (1 / (num - 1))
+#                 scales = [int(round(low * factor ** i)) for i in range(num)]
+#             else:
+#                 print("Scaling type: " + str(scaling) + " not recognized. Options are: [linear, power]")
+#         else:
+#             scales = [int(s) for s in scales]
+#         return scales
 
-    image_sizes = opt_to_ints(opt.image_sizes, opt.size_scaling, opt.num_scales)
-    num_iters = opt_to_ints(opt.num_iterations, opt.iter_scaling, opt.num_scales)
-    return image_sizes, reversed(num_iters)
+#     image_sizes = opt_to_ints(args.image_sizes, args.size_scaling, args.num_scales)
+#     num_iters = opt_to_ints(args.num_iters, args.iter_scaling, args.num_scales)
+#     return image_sizes, reversed(num_iters)

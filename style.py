@@ -1,269 +1,321 @@
-import gc
+import glob
 import math
 import os.path
-import sys
+import random
 
+import ffmpeg
 import numpy as np
+import scipy.ndimage as ndi
 import torch as th
-import torch.nn as nn
 import torch.nn.functional as F
-import tqdm
-from torch import optim
 
+import config
+import flow
 import load
-import loss
 import models
-from utils import info, wrapping_slice
-
-PBAR = tqdm.tqdm(file=sys.stdout, smoothing=0.1)
-
-
-def set_content_targets(net, content_image, opt):
-    if opt.pbar:
-        PBAR.set_description(f"Capturing content targets...")
-
-    for i in net.content_losses:
-        i.mode = "capture"
-
-    net(content_image.type(opt.model.dtype))
-
-    for i in net.content_losses:
-        i.mode = "none"
+import optim
+from utils import match_histogram, name
 
 
-def set_temporal_targets(net, warp_image, warp_weights=None, opt=None):
-    if opt.pbar:
-        PBAR.set_description(f"Capturing temporal targets...")
-
-    for i in net.temporal_losses:
-        i.mode = "capture"
-        if warp_weights is not None:
-            i.weights = warp_weights.type(opt.model.dtype)
-
-    net(warp_image.type(opt.model.dtype))
-
-    for i in net.temporal_losses:
-        i.mode = "none"
-
-
-def set_style_targets(net, style_images, opt):
-    if opt.pbar:
-        PBAR.set_description(f"Capturing style targets...")
-
-    for j in net.style_losses:
-        j.reset_targets()
-        j.mode = "capture"
-
-    for i, image in enumerate(style_images):
-
-        for j in net.style_losses:
-            j.blend_weight = opt.param.style_blend_weights[i]
-
-        net(image.type(opt.model.dtype))
-
-    for j in net.style_losses:
-        j.mode = "none"
-
-
-def set_style_video_targets(net, style_videos, opt):
-    if opt.pbar:
-        PBAR.set_description(f"Capturing style video targets...")
-
-    for j in net.style_losses:
-        j.reset_targets()
-        j.mode = "capture"
-
-    for i, video in enumerate(style_videos):
-
-        for j in net.style_losses:
-            # divide weight by number of windows videos average over
-            # this also decreases strength of static image styles, though
-            # TODO refactor? or just set style_video_factor accordingly?
-            j.blend_weight = opt.param.style_blend_weights[i] / max(len(video) - opt.param.gram_frame_window + 1, 1)
-
-        # average style targets over all windows of video
-        for window_start in range(max(len(video) - opt.param.gram_frame_window + 1, 1)):
-            net(video[window_start : window_start + opt.param.gram_frame_window].type(opt.model.dtype))
-
-    for j in net.style_losses:
-        j.mode = "none"
-
-
-def optimize(content, styles, init, num_iters, opt, net=None, losses=None):
-    if init.numel() <= 5 * 1664 * 1664 * 3:
-        opt.model.gpu = 0
-        opt.model.multidevice = False
-    elif init.numel() <= 5 * 3000 * 3000 * 3:
-        opt.model.gpu = "0,1"
-        opt.model.multidevice = True
-        opt.param.tv_weight = 0
-        opt.model.model_file = "../style-transfer/models/vgg16-00b39a1b.pth"
-        opt.optim.optimizer = "adam"
+def img_img(args):
+    style_images_big = load.process_style_images(args)
+    content_image_big = match_histogram(load.preprocess(args.content), style_images_big)
+    content_size = np.array(content_image_big.size()[-2:])
+    if args.init != "content" and args.init != "random":
+        pastiche = load.preprocess(args.init)
     else:
-        opt.model.model_file = "../style-transfer/models/nin_imagenet.pth"
-        opt.model.style_layers = "relu1,relu3,relu5,relu7,relu9,relu11"
-        opt.model.content_layers = "relu8"
-    opt.param.num_iterations = num_iters
-    # opt.optim.print_iter = num_iters // 4
+        pastiche = None
 
-    # TODO make work for spatial tiling as well
-    if "_vid" in opt.transfer_type:
-        # linearly space start of windows over total time of styles given number of windows needed to cover pastiche
-        num_windows = math.ceil(init.shape[0] / opt.param.gram_frame_window)
-        framestep = (
-            np.array([style.shape[0] - opt.param.gram_frame_window / 2 for style in [init] + styles]) / num_windows
+    for (current_size, num_iters) in zip(args.image_sizes, args.num_iters):
+        print("\nCurrent size {}px".format(current_size))
+        if os.path.exists(f"{args.output}_{current_size}.png"):
+            pastiche = load.preprocess(f"{args.output}_{current_size}.png")
+            continue
+
+        # scale content image
+        content_scale = current_size / max(*content_size)
+        content_image = F.interpolate(
+            content_image_big, scale_factor=content_scale, mode="bilinear", align_corners=False
         )
-        windows = [
-            [math.ceil(framestep[idx] * n) for n in range(num_windows + 1)]
-            if ([init] + styles)[idx].shape[0] != 1
-            else [0] * (num_windows + 1)
-            for idx in range(len([init] + styles))
-        ]
-    else:
-        windows = [[0]] * len(styles)
-    # print(windows)
 
-    if net is None or losses is None:
-        net, losses = models.load_model(opt.model, opt.param)
+        # scale style images
+        style_images = []
+        content_area = content_image.shape[2] * content_image.shape[3]
+        for img in style_images_big:
+            style_scale = math.sqrt(content_area / (img.size(3) * img.size(2))) * args.style_scale
+            style_images.append(
+                F.interpolate(th.clone(img), scale_factor=style_scale, mode="bilinear", align_corners=False)
+            )
 
-    if opt.pbar:
-        PBAR.reset()
-        PBAR.total = len(windows[0]) * num_iters
-        PBAR.refresh()
-    # else:
-    #     line = ""
-    #     for mod in losses:
-    #         line += f"{mod.name:<10s}"
-    #     print(line)
-
-    set_content_targets(net, content, opt)
-
-    if "_vid" in opt.transfer_type:
-        if opt.param.avg_frame_window == -1:
-            set_style_video_targets(net, styles, opt)
-            for mod in losses:
-                mod.mode = "loss"
-    else:
-        set_style_targets(net, styles, opt)
-        for mod in losses:
-            mod.mode = "loss"
-
-    output = init
-    for w, window_start in enumerate(windows[0]):
-
-        if "_vid" in opt.transfer_type:
-            front_overlap = windows[0][w - 1] + opt.param.gram_frame_window - window_start
-            if window_start + opt.param.gram_frame_window >= output.shape[0]:
-                end_overlap = (window_start + opt.param.gram_frame_window) % output.shape[0]
-            else:
-                end_overlap = 0
-
-            current_pastiche = wrapping_slice(output, window_start, opt.param.gram_frame_window)
-
-            if not opt.param.avg_frame_window == -1:
-                current_styles = [
-                    wrapping_slice(style, windows[num + 1][w], opt.param.avg_frame_window)
-                    for num, style in enumerate(styles)
-                ]
-                if "_vid" in opt.transfer_type:
-                    set_style_video_targets(net, current_styles, opt)
-
-                for mod in losses:
-                    mod.mode = "loss"
+        # Initialize the pastiche image
+        if args.init == "random" and pastiche is None:
+            H, W = content_image.shape[2:]
+            pastiche = th.randn(1, 3, H, W).mul(0.001)
+        elif args.init == "content" and pastiche is None:
+            pastiche = F.interpolate(
+                content_image_big.clone(),
+                tuple(np.int64(content_image.shape[2:])),
+                mode="bilinear",
+                align_corners=False,
+            )
         else:
-            current_pastiche = init
+            pastiche = F.interpolate(
+                pastiche.clone(), tuple(np.int64(content_image.shape[2:])), mode="bilinear", align_corners=False
+            )
+        pastiche = match_histogram(pastiche, style_images_big)
 
-        pastiche = nn.Parameter(current_pastiche.type(opt.model.dtype))
+        output_image = optim.optimize(content_image, style_images, pastiche, num_iters, args)
 
-        # Maybe normalize target strengths; divide weights by channel size (only once, strengths aren't reset!)
-        if w == 0 and opt.param.normalize_weights:
-            for n, i in enumerate(net.content_losses + net.style_losses + net.temporal_losses):
-                i.strength = i.strength / max(i.target.size())
+        pastiche = match_histogram(output_image.detach().cpu(), style_images_big)
 
-        if opt.optim.optimizer == "lbfgs":
-            if opt.pbar:
-                PBAR.set_description(f"Running optimization with L-BFGS")
-            optim_state = {
-                "max_iter": num_iters,
-                "tolerance_change": float(opt.optim.lbfgs_tolerance_change),
-                "tolerance_grad": float(opt.optim.lbfgs_tolerance_grad),
-            }
-            if opt.optim.lbfgs_num_correction != 100:
-                optim_state["history_size"] = opt.optim.lbfgs_num_correction
-            optimizer = optim.LBFGS([pastiche], **optim_state)
-            iters = 1
-        elif opt.optim.optimizer == "adam":
-            if opt.pbar:
-                PBAR.set_description(f"Running optimization with ADAM")
-            optimizer = optim.Adam([pastiche], lr=opt.optim.learning_rate)
-            iters = num_iters
+        load.save_tensor_to_file(pastiche.detach().cpu(), args, size=current_size)
 
-        i = [0]
-        log_losses = [[0] * len(losses)]
 
-        def feval():
-            # info(pastiche)
-            optimizer.zero_grad()
+def img_vid(args):
+    # load style videos
+    style_videos_big = load.process_style_videos(args)
 
-            net(pastiche)
+    # load content image
+    content_image_big = load.preprocess(args.content)
+    if args.match_histograms != False:
+        content_image_big = match_histogram(content_image_big, style_videos_big, mode=args.match_histograms)
 
-            total_loss = 0
-            for idx, mod in enumerate(losses):
-                if mod.loss == 0:
+    # determine frame settings
+    if args.num_frames == -1:
+        video_length = max([vid.shape[0] for vid in style_videos_big])
+    else:
+        video_length = args.num_frames
+    delta_ts = args.gram_frame_window.split(",")
+
+    # initialize pastiche video
+    H, W = content_size = np.array(content_image_big.size()[-2:])
+    if args.init == "random":
+        pastiche = th.randn((video_length, 3, H, W)) * 255
+        pastiche = th.from_numpy(ndi.gaussian_filter(pastiche.numpy(), [video_length, 0, H / 32, W / 32], mode="wrap"))
+    elif args.init == "content":
+        pastiche = F.interpolate(content_image_big.clone(), tuple(content_size), mode="bilinear", align_corners=False)
+        pastiche = pastiche.repeat([video_length, 1, 1, 1])
+        pastiche += th.randn((video_length, 3, H, W)) * 255
+        pastiche = th.from_numpy(ndi.gaussian_filter(pastiche.numpy(), [video_length, 0, 4, 4], mode="wrap"))
+    else:
+        pastiche = load.preprocess_video(args.init, args.fps)
+        pastiche = pastiche.repeat([video_length, 1, 1, 1])
+    if args.match_histograms != False:
+        pastiche = match_histogram(pastiche, style_videos_big, mode=args.match_histograms)
+
+    for i, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.num_iters)):
+        if os.path.exists(f"{args.output}_{current_size}.mp4"):
+            pastiche = load.preprocess_video(f"{args.output}_{current_size}.mp4", args.fps)
+            continue
+        print("\nCurrent size {}px".format(current_size))
+        args.gram_frame_window = int(delta_ts[i])
+
+        # scale content image
+        content_image = F.interpolate(
+            content_image_big, scale_factor=current_size / max(*content_size), mode="bilinear", align_corners=False
+        )
+
+        # scale style videos
+        style_videos = []
+        content_area = content_image.shape[2] * content_image.shape[3]
+        for vid in style_videos_big:
+            style_scale = math.sqrt(content_area / (vid.size(3) * vid.size(2))) * args.style_scale
+            style_videos.append(
+                F.interpolate(th.clone(vid), scale_factor=style_scale, mode="bilinear", align_corners=False)
+            )
+
+        # scale pastiche video
+        pastiche = F.interpolate(
+            pastiche.clone(), tuple(np.int64(content_image.shape[2:])), mode="bilinear", align_corners=False
+        )
+
+        pastiche = optim.optimize(content_image, style_videos, pastiche, num_iters, args).detach().cpu()
+
+        pastiche = th.cat((pastiche[7:], pastiche[:7]))
+        style_videos_big = [th.cat((svb[7:], svb[:7])) for svb in style_videos_big]
+
+        if args.temporal_blend > 0:
+            pastiche = th.from_numpy(ndi.gaussian_filter(pastiche, [args.temporal_blend, 0, 0, 0], mode="wrap"))
+        if args.match_histograms != False:
+            pastiche = match_histogram(pastiche, style_videos_big, mode=args.match_histograms)
+        load.save_tensor_to_file(pastiche, args, filename=f"{args.output}_{current_size}")
+
+    load.save_tensor_to_file(match_histogram(pastiche, style_videos_big, mode=args.match_histograms), args)
+
+
+def vid_img(args):
+    output_dir = args.output_dir + "/" + name(args.content) + "_" + "_".join([name(s) for s in args.style])
+
+    flow_model = flow.get_flow_model(args)
+    frames = load.process_content_video(flow_model, args)
+    content_size = np.array(load.preprocess(frames[0]).size()[-2:])
+
+    style_images_big = load.process_style_images(args)
+
+    for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.num_iters)):
+
+        if len(glob.glob("%s/%s/*.png" % (output_dir, args.image_sizes[size_n + 1]))) > 1:
+            print("Skipping size: %s, already done." % current_size)
+            prev_size = current_size
+            continue
+
+        print("\nCurrent size {}px".format(current_size))
+        os.makedirs(output_dir + "/" + str(current_size), exist_ok=True)
+        content_scale = current_size / max(*content_size)
+
+        # scale style images
+        style_images = []
+        content_area = content_scale ** 2 * content_size[0] * content_size[1]
+        for img in style_images_big:
+            style_scale = math.sqrt(content_area / (img.size(3) * img.size(2))) * args.style_scale
+            style_images.append(
+                F.interpolate(th.clone(img), scale_factor=style_scale, mode="bilinear", align_corners=False)
+            )
+
+        optim.set_model_args(args, current_size)
+        net, losses = models.load_model(args)
+        # optim.set_style_targets(net, style_images, args)
+
+        for pass_n in range(args.passes_per_scale):
+            pastiche = None
+
+            if args.loop:
+                start_idx = random.randrange(0, len(frames) - 1)
+                frames = frames[start_idx:] + frames[:start_idx]  # rotate frames
+
+            if len(glob.glob("%s/%s/%s_*.png" % (output_dir, current_size, pass_n + 2))) > 1:
+                print(f"Skipping pass: {pass_n + 1}, already done.")
+                continue
+
+            for n, (prev_frame, this_frame) in enumerate(
+                zip(frames + frames[: 11 if args.loop else 1], frames[1:] + frames[: 10 if args.loop else 1])
+            ):
+                # TODO add update_style() function to support changing styles per frame
+
+                args.output = "%s/%s/%s_%s.png" % (output_dir, current_size, pass_n + 1, name(this_frame))
+                if os.path.isfile(args.output) and not n >= len(frames):
+                    print("Skipping pass: %s, frame: %s. File already exists." % (pass_n + 1, name(this_frame)))
                     continue
-                log_losses[0][idx] += mod.loss.detach().cpu().item()
-                total_loss += mod.loss.to(opt.model.backward_device)
 
-            total_loss.backward()
+                print("Optimizing... size: %s, pass: %s, frame: %s" % (current_size, pass_n + 1, name(this_frame)))
 
-            # disable gradients to frames already styled in previous windows
-            if w != 0:
-                pastiche.grad[:front_overlap] = 0
-                if end_overlap > 0:
-                    pastiche.grad[-end_overlap:] = 0
+                content_frames = [
+                    F.interpolate(
+                        load.preprocess(prev_frame), scale_factor=content_scale, mode="bilinear", align_corners=False
+                    ),
+                    F.interpolate(
+                        load.preprocess(this_frame), scale_factor=content_scale, mode="bilinear", align_corners=False
+                    ),
+                ]
+                content_frames = [match_histogram(frame, style_images_big[0]) for frame in content_frames]
+                # optim.set_content_targets(net, content_frames[1], args)
 
-            for mod in losses:
-                mod.loss = 0
+                # Initialize the image
+                # TODO make sure initialization correct even when continuing half way through video stylization
+                if size_n == 0 and pass_n == 0:
+                    if args.init == "random":
+                        pastiche = th.randn(content_frames[1].size()).mul(0.001)
+                    elif args.init == "prev_warp":
+                        if pastiche is None:
+                            pastiche = content_frames[0]
+                        flo_file = "%s/flow/forward_%s_%s.flo" % (output_dir, name(prev_frame), name(this_frame))
+                        flow_map = load.flow_warp_map(flo_file, pastiche.shape[2:])
+                        pastiche = F.grid_sample(pastiche, flow_map, padding_mode="border")
+                    else:
+                        pastiche = content_frames[1].clone()
+                else:
+                    if pass_n == 0:
+                        # load images from last pass of previous size
+                        if pastiche is None:
+                            ifile = "%s/%s/%s_%s.png" % (
+                                output_dir,
+                                prev_size if n <= len(frames) else current_size,
+                                args.passes_per_scale if n <= len(frames) else pass_n + 1,
+                                name(prev_frame),
+                            )
+                            pastiche = load.preprocess(ifile)
+                            pastiche = F.interpolate(
+                                pastiche, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
+                            )
+                        bfile = "%s/%s/%s_%s.png" % (
+                            output_dir,
+                            prev_size if n <= len(frames) else current_size,
+                            args.passes_per_scale if n <= len(frames) else pass_n + 1,
+                            name(this_frame),
+                        )
+                        blend_image = load.preprocess(bfile)
+                        blend_image = F.interpolate(
+                            blend_image, size=content_frames[0].size()[2:], mode="bilinear", align_corners=False
+                        )
+                    else:
+                        # load images from previous pass of current size
+                        if pastiche is None:
+                            ifile = "%s/%s/%s_%s.png" % (
+                                output_dir,
+                                current_size,
+                                pass_n if n <= len(frames) else pass_n + 1,
+                                name(prev_frame),
+                            )
+                            pastiche = load.preprocess(ifile)
+                        bfile = "%s/%s/%s_%s.png" % (
+                            output_dir,
+                            current_size,
+                            pass_n if n <= len(frames) else pass_n + 1,
+                            name(this_frame),
+                        )
+                        blend_image = load.preprocess(bfile)
 
-            if opt.pbar:
-                PBAR.update(1)
-            i[0] += 1
+                    direction = "forward" if pass_n % 2 == 0 else "backward"
+                    flo_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.flo"
+                    flow_map = load.flow_warp_map(flo_file, pastiche.shape[2:])
 
-            if opt.optim.print_iter > 0 and i[0] % opt.optim.print_iter == 0 and opt.model.verbose:
-                print(f"Iteration {i[0]} / {opt.param.num_iterations}, Loss: {total_loss}")
-            if opt.optim.save_iter > 0 and (i[0] % opt.optim.save_iter == 0 or i[0] == num_iters):
-                load.save_tensor_to_file(
-                    pastiche.detach().cpu(),
-                    opt,
-                    (w * num_iters) + i[0] if not (w * num_iters) + i[0] == len(windows[0]) * num_iters else None,
-                    pastiche.size(3),
+                    warp_image = F.grid_sample(pastiche, flow_map, padding_mode="border")
+
+                    flow_weight_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.png"
+                    reliable_flow = load.reliable_flow_weighting(flow_weight_file)
+                    reliable_flow = F.interpolate(
+                        reliable_flow, size=pastiche.size()[2:], mode="bilinear", align_corners=False
+                    )
+
+                    optim.set_temporal_targets(net, warp_image, warp_weights=reliable_flow, args=args)
+
+                    blend_pastiche = (1 - args.temporal_blend) * blend_image + args.temporal_blend * pastiche
+                    warp_blend_pastiche = F.grid_sample(blend_pastiche, flow_map, padding_mode="border")
+                    pastiche = warp_blend_pastiche
+
+                output_image = optim.optimize(
+                    content_frames[1], style_images, pastiche, num_iters // args.passes_per_scale, args, net, losses
                 )
 
-            # if not opt.pbar:
-            #     if i[0] % (num_iters // 8) == 0:
-            #         line = ""
-            #         for ll in log_losses[0]:
-            #             line += f"{f'{ll / (num_iters // 8):.2E}':<10s}"
-            #         print(line)
-            #         log_losses[0] = [0] * len(losses)
+                pastiche = match_histogram(output_image.detach().cpu(), style_images_big[0])
 
-            return total_loss
+                disp = load.deprocess(pastiche.clone())
+                if args.original_colors == 1:
+                    disp = load.original_colors(load.deprocess(content_frames[1].clone()), disp)
+                disp.save(str(args.output))
 
-        while i[0] <= iters:
-            optimizer.step(feval)
+            # reverse frames for next pass
+            frames = list(reversed(frames))
 
-        # TODO figure out better way to blend frames into output
-        if "_vid" in opt.transfer_type:
-            output[
-                wrapping_slice(output, window_start, opt.param.gram_frame_window, return_indices=True)
-            ] = pastiche.cpu()
-            if not opt.param.avg_frame_window == -1:
-                del current_styles
-        else:
-            output = pastiche.cpu()
-
-        del optimizer, current_pastiche, pastiche
-        gc.collect()
+        ffmpeg.input(output_dir + "/" + str(current_size) + "/" + str(pass_n) + "_%05d.png").output(
+            "%s/%s_%s.mp4" % (output_dir, name(output_dir), current_size), **args.ffmpeg
+        ).overwrite_output().run()
+        prev_size = current_size
+        del net
         th.cuda.empty_cache()
 
-    return output
+    # ffmpeg.input(f"{output_dir}/{current_size}/{pass_n}_%05d.png").output(
+    #     args.output, **args.ffmpeg
+    # ).overwrite_output().run()
+
+
+if __name__ == "__main__":
+    args = config.get_args()
+
+    if args.seed >= 0:
+        th.manual_seed(args.seed)
+        th.cuda.manual_seed_all(args.seed)
+        if args.backend == "cudnn":
+            th.backends.cudnn.deterministic = True
+
+    eval(args.transfer_type)(args)

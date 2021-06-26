@@ -1,13 +1,14 @@
-import os.path
 import itertools
-from PIL import Image
-import torch as th
-import torchvision.transforms as T
-import numpy as np
-import scipy.ndimage
-import scipy.misc
-import skvideo.io
+import os.path
 
+import numpy as np
+import scipy.misc
+import scipy.ndimage
+import skvideo.io
+import torch as th
+import torch.nn.functional as F
+import torchvision.transforms as T
+from PIL import Image
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # Support gigapixel images
 
@@ -49,14 +50,14 @@ def deprocess(output_tensor):
     return T.ToPILImage()(output_tensor.cpu())
 
 
-def save_tensor_to_file(tensor, opt, iteration=None, size=None, filename=None):
+def save_tensor_to_file(tensor, args, iteration=None, size=None, filename=None):
     if filename is None:
         if size is None:
-            filename = f"{opt.output}"
+            filename = f"{args.output}"
         elif iteration is None:
-            filename = f"{opt.output}_{size}"
+            filename = f"{args.output}_{size}"
         else:
-            filename = f"{opt.output}_{size}_{iteration}"
+            filename = f"{args.output}_{size}_{iteration}"
 
     # TODO add video deprocess function and make original_colors() work with videos
     if tensor.size()[0] > 1:
@@ -66,42 +67,25 @@ def save_tensor_to_file(tensor, opt, iteration=None, size=None, filename=None):
         skvideo.io.vwrite(f"{filename}.mp4", video)
     else:
         img = deprocess(tensor.clone())
-        if opt.param.original_colors == 1:
-            img = original_colors(deprocess(preprocess(opt.content)), img)
+        if args.original_colors == 1:
+            img = original_colors(deprocess(preprocess(args.content)), img)
         img.save(f"{filename}.png")
 
 
-def process_style_images(opt):
-    style_image_input = opt.input.style.split(",")
-    style_image_list, ext = [], [".jpg", ".jpeg", ".png", ".tiff"]
+def process_style_images(args):
+    style_image_input = args.style
+    style_image_list, ext = [], [".png", ".jpeg", ".jpg", ".tiff"]
+
     for image in style_image_input:
         if os.path.isdir(image):
             images = (image + "/" + file for file in os.listdir(image) if os.path.splitext(file)[1].lower() in ext)
             style_image_list.extend(images)
         else:
             style_image_list.append(image)
+
     style_images = []
     for image in style_image_list:
         style_images.append(preprocess(image))
-
-    # Handle style blending weights for multiple style inputs
-    style_blend_weights = []
-    # if opt.param.style_blend_weights is False:
-    # Style blending not specified, so use equal weighting
-    for i in style_image_list:
-        style_blend_weights.append(1.0)
-    # else:
-    #     style_blend_weights = [float(x) for x in opt.param.style_blend_weights.split(",")]
-    #     assert len(style_blend_weights) == len(
-    #         style_image_list
-    #     ), "-style_blend_weights and -style_images must have the same number of elements!"
-
-    # Normalize the style blending weights so they sum to 1
-    style_blend_sum = sum(style_blend_weights)
-    for i, blend_weight in enumerate(style_blend_weights):
-        style_blend_weights[i] = blend_weight / style_blend_sum
-
-    opt.param.style_blend_weights = style_blend_weights
 
     return style_images
 
@@ -114,8 +98,8 @@ def name(s):
     return s.split("/")[-1].split(".")[0]
 
 
-def process_style_videos(opt):
-    style_video_input = opt.input.style.split(",")
+def process_style_videos(args):
+    style_video_input = args.style.split(",")
 
     style_video_list, ext = [], [".mp4", ".gif"]
     for video in style_video_input:
@@ -127,16 +111,16 @@ def process_style_videos(opt):
 
     style_videos = []
     for video_path in style_video_list:
-        style_videos.append(preprocess_video(video_path, opt.ffmpeg.fps))
+        style_videos.append(preprocess_video(video_path, args.ffmpeg.fps))
 
     # Handle style blending weights for multiple style inputs
     style_blend_weights = []
-    if opt.param.style_blend_weights is False:
+    if args.style_blend_weights is False:
         # Style blending not specified, so use equal weighting
         for i in style_video_list:
             style_blend_weights.append(1.0)
     else:
-        style_blend_weights = [float(x) for x in opt.param.style_blend_weights.split(",")]
+        style_blend_weights = [float(x) for x in args.style_blend_weights.split(",")]
         assert len(style_blend_weights) == len(
             style_video_list
         ), "-style_blend_weights and -style must have the same number of elements!"
@@ -146,19 +130,18 @@ def process_style_videos(opt):
     for i, blend_weight in enumerate(style_blend_weights):
         style_blend_weights[i] = blend_weight / style_blend_sum
 
-    opt.param.style_blend_weights = style_blend_weights
+    args.style_blend_weights = style_blend_weights
 
     return style_videos
 
 
 # extract frames from video, calculate optical flow in forward and backward direction, save as flo and png files
-def process_content_video(model, opt):
-    import flow
+def process_content_video(model, args):
     import ffmpeg
 
-    work_dir = (
-        opt.output_dir + "/" + name(opt.input.content) + "_" + "_".join([name(s) for s in opt.input.style.split(",")])
-    )
+    import flow
+
+    work_dir = args.output_dir + "/" + name(args.content) + "_" + "_".join([name(s) for s in args.style])
     frames_dir = work_dir + "/frames/"
     flow_dir = work_dir + "/flow/"
     os.makedirs(work_dir, exist_ok=True)
@@ -166,7 +149,7 @@ def process_content_video(model, opt):
     os.makedirs(flow_dir, exist_ok=True)
 
     if len(os.listdir(frames_dir)) == 0:
-        ffmpeg.input(opt.input.content).output(frames_dir + "/%05d.png").run()
+        ffmpeg.input(args.content).output(frames_dir + "/%05d.png").run()
 
     with th.no_grad():
         images = [frames_dir + file for file in sorted(os.listdir(frames_dir)) if ".png" in file and "_" not in file]
@@ -183,12 +166,18 @@ def process_content_video(model, opt):
             backward_flow = model(img2, img1)
             write_flow(backward_flow, "%s/backward_%s_%s.flo" % (flow_dir, name(img_file2), name(img_file1)))
 
-            reliable_flow_arr = flow.check_consistency(forward_flow, backward_flow)
-            reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
+            if args.no_check_occlusion:
+                reliable_flow_img = Image.fromarray(flow.flow_to_image(forward_flow)).convert("L")
+            else:
+                reliable_flow_arr = flow.check_consistency(forward_flow, backward_flow)
+                reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
             reliable_flow_img.save("%s/forward_%s_%s.png" % (flow_dir, name(img_file1), name(img_file2)))
 
-            reliable_flow_arr = flow.check_consistency(backward_flow, forward_flow)
-            reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
+            if args.no_check_occlusion:
+                reliable_flow_img = Image.fromarray(flow.flow_to_image(backward_flow)).convert("L")
+            else:
+                reliable_flow_arr = flow.check_consistency(backward_flow, forward_flow)
+                reliable_flow_img = Image.fromarray(((1 - reliable_flow_arr) * 255).astype(np.uint8)).convert("L")
             reliable_flow_img.save("%s/backward_%s_%s.png" % (flow_dir, name(img_file2), name(img_file1)))
 
             print("processed optical flow: %s <---> %s" % (name(img_file1), name(img_file2)))
@@ -197,7 +186,7 @@ def process_content_video(model, opt):
     return images
 
 
-def flow_warp_map(filename):
+def flow_warp_map(filename, current_size):
     f = open(filename, "rb")
     magic = np.fromfile(f, np.float32, count=1)
     flow = None
@@ -217,6 +206,9 @@ def flow_warp_map(filename):
     neutral = np.array(np.meshgrid(np.linspace(-1, 1, int(w[0])), np.linspace(-1, 1, int(h[0]))))
     neutral = np.rollaxis(neutral, 0, 3)
     warp_map = th.FloatTensor(neutral + flow).unsqueeze(0)
+    warp_map = F.interpolate(
+        warp_map.permute(0, 3, 1, 2), size=current_size, mode="bilinear", align_corners=False
+    ).permute(0, 2, 3, 1)
     return warp_map
 
 
@@ -240,7 +232,7 @@ def write_flow(flow, filename):
 # Combine the Y channel of the generated image and the UV/CbCr channels of the
 # content image to perform color-independent style transfer.
 def original_colors(content, generated):
-    content_channels = list(content.convert("YCbCr").split())
+    content_channels = list(content.resize(generated.size).convert("YCbCr").split())
     generated_channels = list(generated.convert("YCbCr").split())
     content_channels[0] = generated_channels[0]
     return Image.merge("YCbCr", content_channels).convert("RGB")

@@ -1,3 +1,4 @@
+# DEPRECATED
 output_dir: /home/hans/neurout/maua-style
 transfer_type: 'img_vid'
 pbar: True
@@ -10,7 +11,7 @@ param:
   num_scales: 3
   image_sizes: 256,1024
   size_scaling: power
-  num_iterations: 300,100
+  num_iters: 300,100
   iter_scaling: power
   avg_frame_window: -1
   gram_frame_window: 9,9,9,4
