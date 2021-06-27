@@ -3,6 +3,7 @@ Based on https://github.com/znah/gitart_kunstformen_ca
 """
 
 from NCA_train import *
+from glob import glob
 
 model_file = f"{out_dir}{name(style_file)}_7500.pt"
 ca = torch.load(model_file)
@@ -21,7 +22,7 @@ with VideoWriter(f"{out_dir}/{name(style_file)}_{name(model_file).split('_')[-1]
 # Running all training checkpoints on the columns of the same grid
 # Early model snapshots aren't stable in the long term.
 with VideoWriter(f"{out_dir}/{name(style_file)}_checkgrid.mp4") as vid, torch.no_grad():
-    models = [torch.load(fn) for fn in sorted(glob.glob(f"{out_dir}/{name(style_file)}*.pt"))][2:-2]
+    models = [torch.load(fn) for fn in sorted(glob(f"{out_dir}/{name(style_file)}*.pt"))][2:-2]
     chn = models[0].chn
     w = 128
     x = torch.rand(1, chn, 512, w * len(models) + 2) * 0.1

@@ -501,7 +501,7 @@ def update_styles(style, content_text, style_text):
 
 
 def synth(model, z):
-    # WTF, why does this require going through host memory? for some reason codebook is all 0s without .cpu()
+    # TODO WTF, why does this require going through host memory? for some reason codebook is all 0s without .cpu()
     codebook = model.quantize.embedding.weight.data.cpu().to(dev0)
     z_q = vector_quantize(z.movedim(1, 3), codebook).movedim(3, 1)
     return clamp_with_grad(model.decode(z_q).add(1).div(2), 0, 1)

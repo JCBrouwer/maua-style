@@ -51,7 +51,7 @@ def get_args():
     parser.add_argument("--lbfgs_tolerance_grad", type=int, default=-1)
 
     # gpu
-    parser.add_argument("--gpu", help="Zero-indexed ID of the GPU to use; for CPU mode set -gpu = c", default=0)
+    parser.add_argument("--gpu", help="Zero-indexed ID of the GPU to use; for CPU mode set -gpu = c", type=str, default="0")
     parser.add_argument("--backend", choices=["nn", "cudnn", "mkl", "mkldnn", "openmp", " mkl,cudnn ", " cudnn,mkl "], default="cudnn")
     parser.add_argument("--multidevice_strategy", default="5")
     parser.add_argument("--no_cudnn_autotune", action="store_true")
@@ -85,7 +85,7 @@ def get_args():
     parser.add_argument("--save_args", action="store_true")
     parser.add_argument("--load_args", type=str, default=None)
     parser.add_argument("--ffmpeg_args", type=str, default="config/ffmpeg-libx264.json")
-    parser.add_argument("--scaling_args", type=str, default="config/scaling-2x11GB", help="multi-network multi-scale model-parallel configuration")
+    parser.add_argument("--scaling_args", type=str, default="config/scaling-img.json", help="multi-network multi-scale model-parallel configuration")
     parser.add_argument("--uniq", action="store_true")
 
     args = parser.parse_args()
@@ -94,10 +94,6 @@ def get_args():
     output = f"{name(args.content)}_{'_'.join([name(s) for s in args.style])}"
     if args.uniq:
         output += f"_{str(uuid.uuid4())[:6]}"
-
-    if args.save_args:
-        with open(f"config/{output}_args.json", "w") as f:
-            json.dump(args.__dict__, f, indent=2)
 
     if args.load_args is not None:
         # load from file
@@ -118,6 +114,10 @@ def get_args():
         for key in non_default:
             setattr(file_args, key, non_default[key])
         args = file_args
+
+    if args.save_args:
+        with open(f"config/{output}_args.json", "w") as f:
+            json.dump(args.__dict__, f, indent=2)
 
     args.output = f"{args.output_dir}/{output}"
 

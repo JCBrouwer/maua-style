@@ -1,4 +1,4 @@
-# DEPRECATED
+# DEPRECATED, needs to be adapted to new config style
 output_dir: /home/hans/neurout/maua-style
 transfer_type: 'img_vid'
 pbar: True
