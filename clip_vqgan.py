@@ -19,6 +19,7 @@
 # THE SOFTWARE.
 
 import argparse
+import copy
 import math
 import os
 import sys
@@ -26,7 +27,6 @@ from copy import deepcopy
 from glob import glob
 from pathlib import Path
 
-import requests
 import torch
 from omegaconf import OmegaConf
 from PIL import Image
@@ -35,10 +35,19 @@ from torch.nn import functional as F
 from torchvision.transforms import functional as TF
 from tqdm import tqdm
 
+from utils import download, fetch
+
+# replace checkpoint path to avoid the weird path that gets created by default
+with open("VQGAN/taming/modules/losses/lpips.py", "r") as f:
+    t = f.read()
+    t = t.replace('get_ckpt_path(name, "taming/modules/autoencoder/lpips")', 'get_ckpt_path(name, "modelzoo/lpips")')
+with open("VQGAN/taming/modules/losses/lpips.py", "w") as f:
+    f.write(t)
 sys.path = [os.path.dirname(os.path.abspath(__file__)) + "/VQGAN/"] + sys.path
 
-from CLIP import clip
 from taming.models import cond_transformer, vqgan
+
+from CLIP import clip
 
 
 def sinc(x):
@@ -148,7 +157,52 @@ class MakeCutouts(nn.Module):
         return clamp_with_grad(torch.cat(cutouts, dim=0), 0, 1)
 
 
-def load_vqgan_model(config_path, checkpoint_path):
+def maybe_download_vqgan(model_dir):
+    # fmt: off
+    if model_dir == "imagenet_1024":
+        config_path, checkpoint_path = "modelzoo/vqgan_imagenet_f16_1024.yaml", "modelzoo/vqgan_imagenet_f16_1024.ckpt"
+        if not os.path.exists(checkpoint_path):
+            download("http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_1024.yaml", config_path)
+            download("http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_1024.ckpt", checkpoint_path)
+    elif model_dir == "imagenet_16384":
+        config_path, checkpoint_path = "modelzoo/vqgan_imagenet_f16_16384.yaml", "modelzoo/vqgan_imagenet_f16_16384.ckpt"
+        if not os.path.exists(checkpoint_path):
+            download("http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_16384.yaml", config_path)
+            download("http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_16384.ckpt", checkpoint_path)
+    elif model_dir == "coco":
+        config_path, checkpoint_path = "modelzoo/coco.yaml", "modelzoo/coco.ckpt"
+        if not os.path.exists(checkpoint_path):
+            download("https://dl.nmkd.de/ai/clip/coco/coco.yaml", config_path)
+            download("https://dl.nmkd.de/ai/clip/coco/coco.ckpt", checkpoint_path)
+    elif model_dir == "faceshq":
+        config_path, checkpoint_path = "modelzoo/faceshq.yaml", "modelzoo/faceshq.ckpt"
+        if not os.path.exists(checkpoint_path):
+            download("https://drive.google.com/uc?export=download&id=1fHwGx_hnBtC8nsq7hesJvs-Klv-P0gzT", config_path)
+            download("https://app.koofr.net/content/links/a04deec9-0c59-4673-8b37-3d696fe63a5d/files/get/last.ckpt?path=%2F2020-11-13T21-41-45_faceshq_transformer%2Fcheckpoints%2Flast.ckpt", checkpoint_path)
+    elif model_dir == "wikiart_1024":
+        config_path, checkpoint_path = "modelzoo/wikiart_1024.yaml", "modelzoo/wikiart_1024.ckpt"
+        if not os.path.exists(checkpoint_path):
+            download("http://mirror.io.community/blob/vqgan/wikiart.yaml", config_path)
+            download("http://mirror.io.community/blob/vqgan/wikiart.ckpt", checkpoint_path)
+    elif model_dir == "wikiart_16384":
+        config_path, checkpoint_path = "modelzoo/wikiart_16384.yaml", "modelzoo/wikiart_16384.ckpt"
+        if not os.path.exists(checkpoint_path):
+            download("http://mirror.io.community/blob/vqgan/wikiart_16384.yaml", config_path)
+            download("http://mirror.io.community/blob/vqgan/wikiart_16384.ckpt", checkpoint_path)
+    elif model_dir == "sflckr":
+        config_path, checkpoint_path = "modelzoo/sflckr.yaml", "modelzoo/sflckr.ckpt"
+        if not os.path.exists(checkpoint_path):
+            download("https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fconfigs%2F2020-11-09T13-31-51-project.yaml&dl=1", config_path)
+            download("https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fcheckpoints%2Flast.ckpt&dl=1", checkpoint_path)
+    else:
+        config_path = sorted(glob(model_dir + "/*.yaml"), reverse=True)[0]
+        checkpoint_path = sorted(glob(model_dir + "/*.ckpt"), reverse=True)[0]
+    # fmt: on
+    return config_path, checkpoint_path
+
+
+def load_vqgan_model(model_dir):
+    config_path, checkpoint_path = maybe_download_vqgan(model_dir)
     config = OmegaConf.load(config_path)
     if config.model.target == "taming.models.vqgan.VQModel":
         model = vqgan.VQModel(**config.model.params)
@@ -175,12 +229,6 @@ def size_to_fit(size, max_dim, scale_up=False):
     else:
         new_h = round(max_dim * h / w)
     return new_w, new_h
-
-
-def fetch(path_or_url):
-    if not (path_or_url.startswith("http://") or path_or_url.startswith("https://")):
-        return open(path_or_url, "rb")
-    return requests.get(path_or_url, stream=True).raw
 
 
 module_order = [
@@ -342,9 +390,7 @@ else:
 
 @torch.no_grad()
 def load_models(model_dir, clip_backbone):
-    model = (
-        load_vqgan_model(glob(model_dir + "/*.yaml")[0], glob(model_dir + "/*.ckpt")[0]).eval().requires_grad_(False)
-    )
+    model = load_vqgan_model(model_dir)
     model.encoder = model.encoder.cpu().to(dev1)
     model.quantize = model.quantize.cpu().to(dev1)
     model.quant_conv = model.quant_conv.cpu().to(dev1)
@@ -386,7 +432,7 @@ def load_models(model_dir, clip_backbone):
 
 
 @torch.no_grad()
-def initialize_targets(init, style, mask, content_text, style_text, model, perceptor, preprocess, res):
+def initialize_targets(init, content, style, mask, content_text, style_text, model, perceptor, preprocess, res):
     _, _, h, w = init.shape
     toksX, toksY = w // res, h // res
     sideX, sideY = toksX * res, toksY * res
@@ -394,7 +440,7 @@ def initialize_targets(init, style, mask, content_text, style_text, model, perce
 
     z = model.encode(init.to(dev1) * 2 - 1)[0].to(dev0)
 
-    image_embed = perceptor.encode_image(preprocess(init).to(dev1))
+    content_embed = perceptor.encode_image(preprocess(resample(content, (sideX, sideY))).to(dev1))
     if style is not None:
         style_embed = [perceptor.encode_image(preprocess(style_image).to(dev1)) for style_image in style]
     else:
@@ -408,11 +454,11 @@ def initialize_targets(init, style, mask, content_text, style_text, model, perce
         mask = torch.ones([], device=dev0)
     mask = mask.to(dev0)
 
-    return [image_embed, from_embed, to_embed, style_embed], z, mask
+    return [content_embed, from_embed, to_embed, style_embed], z, mask
 
 
 @torch.no_grad()
-def initialize_content(init, mask, model, perceptor, preprocess, res):
+def initialize_content(init, content, mask, model, perceptor, preprocess, res):
     _, _, h, w = init.shape
     toksX, toksY = w // res, h // res
     sideX, sideY = toksX * res, toksY * res
@@ -420,7 +466,7 @@ def initialize_content(init, mask, model, perceptor, preprocess, res):
 
     z = model.encode(init.to(dev1) * 2 - 1)[0].to(dev0)
 
-    image_embed = perceptor.encode_image(preprocess(init).to(dev1))
+    content_embed = perceptor.encode_image(preprocess(resample(content, (sideY, sideX))).to(dev1))
 
     if mask is not None:
         mask = resample(mask, (sideX, sideY))
@@ -428,7 +474,7 @@ def initialize_content(init, mask, model, perceptor, preprocess, res):
         mask = torch.ones([], device=dev0)
     mask = mask.to(dev0)
 
-    return image_embed, z, mask
+    return content_embed, z, mask
 
 
 @torch.no_grad()
@@ -461,30 +507,31 @@ def synth(model, z):
     return clamp_with_grad(model.decode(z_q).add(1).div(2), 0, 1)
 
 
-def ascend_txt(model, perceptor, z, mask, preprocess, embeds, content_strength, style_strength, text_strength):
-    image_embeds, from_embed, to_embed, style_embed = embeds
+def ascend_txt(model, perceptor, z, mask, preprocess, embeds, content_weight, style_weight, text_weight):
+    content_embed, from_embed, to_embed, style_embed = embeds
     out = synth(model, replace_grad(z, z * mask))
     out_embeds = perceptor.encode_image(preprocess(out).to(dev1))
     return [
-        spherical_dist(out_embeds, image_embeds).mean() * content_strength,
+        spherical_dist(out_embeds, content_embed).mean() * content_weight,
         *[
-            (spherical_dist(out_embeds, style).mean() * style_strength if style_embed is not None else torch.zeros([]))
+            (spherical_dist(out_embeds, style).mean() * style_weight if style_embed is not None else torch.zeros([]))
             for style in style_embed
         ],
-        spherical_dist(out_embeds, from_embed).mean() * -text_strength if from_embed is not None else torch.zeros([]),
-        spherical_dist(out_embeds, to_embed).mean() * text_strength if to_embed is not None else torch.zeros([]),
+        spherical_dist(out_embeds, from_embed).mean() * -text_weight if from_embed is not None else torch.zeros([]),
+        spherical_dist(out_embeds, to_embed).mean() * text_weight if to_embed is not None else torch.zeros([]),
     ]
 
 
 def optimize(
     init,
+    content,
     style,
     mask,
     content_text,
     style_text,
-    content_strength,
-    style_strength,
-    text_strength,
+    content_weight,
+    style_weight,
+    text_weight,
     model_dir,
     clip_backbone,
     iterations,
@@ -492,16 +539,16 @@ def optimize(
     out_name,
 ):
     model, perceptor, preprocess, res, z_min, z_max = load_models(model_dir, clip_backbone)
-    embeds, z, mask = initialize_targets(init, style, mask, content_text, style_text, model, perceptor, preprocess, res)
+    embeds, z, mask = initialize_targets(
+        init, content, style, mask, content_text, style_text, model, perceptor, preprocess, res
+    )
 
     z.requires_grad_()
     opt = optim.Adam([z], lr=0.05)
 
     for i in tqdm(range(iterations)):
         opt.zero_grad()
-        losses = ascend_txt(
-            model, perceptor, z, mask, preprocess, embeds, content_strength, style_strength, text_strength
-        )
+        losses = ascend_txt(model, perceptor, z, mask, preprocess, embeds, content_weight, style_weight, text_weight)
         sum(losses).backward()
         opt.step()
 
@@ -521,13 +568,14 @@ model, perceptor, preprocess, res, z_min, z_max, target_embeds = None, None, Non
 
 def optimize_cached(
     init,
+    content,
     style,
     mask,
     content_text,
     style_text,
-    content_strength,
-    style_strength,
-    text_strength,
+    content_weight,
+    style_weight,
+    text_weight,
     model_dir,
     clip_backbone,
     iterations,
@@ -536,17 +584,15 @@ def optimize_cached(
     if model is None:
         model, perceptor, preprocess, res, z_min, z_max = load_models(model_dir, clip_backbone)
         target_embeds = initialize_styles(style, content_text, style_text, perceptor, preprocess)
-    image_embed, z, mask = initialize_content(init, mask, model, perceptor, preprocess, res)
-    embeds = [image_embed] + target_embeds
+    content_embed, z, mask = initialize_content(init, content, mask, model, perceptor, preprocess, res)
+    embeds = [content_embed] + target_embeds
 
     z.requires_grad_()
     opt = optim.Adam([z], lr=0.05)
 
     for i in tqdm(range(iterations)):
         opt.zero_grad()
-        losses = ascend_txt(
-            model, perceptor, z, mask, preprocess, embeds, content_strength, style_strength, text_strength
-        )
+        losses = ascend_txt(model, perceptor, z, mask, preprocess, embeds, content_weight, style_weight, text_weight)
         sum(losses).backward()
         opt.step()
 
@@ -556,37 +602,47 @@ def optimize_cached(
 
 
 if __name__ == "__main__":
+    # fmt: off
     parser = argparse.ArgumentParser()
     parser.add_argument("--content", type=str)
     parser.add_argument("--content_text", type=str)
     parser.add_argument("--style_text", type=str)
     parser.add_argument("--style", type=str, default=None)
-    parser.add_argument("--image_size", default=512, type=int)
-    parser.add_argument("--text_strength", default=1.0, type=float)
-    parser.add_argument("--style_strength", default=1.0, type=float)
-    parser.add_argument("--content_strength", default=1.0, type=float)
-    parser.add_argument("--model_dir", default="/home/hans/modelzoo/vqgan/imagenet/")
-    parser.add_argument("--clip_backbone", default="ViT-B/32", choices=["ViT-B/32", "RN50", "RN101", "RN50x4"])
-    parser.add_argument("--out_dir", default="/home/hans/neurout/")
+    parser.add_argument("--image_size", default=256, type=int)
+    parser.add_argument("--text_weight", default=1.0, type=float)
+    parser.add_argument("--style_weight", default=1.0, type=float)
+    parser.add_argument("--content_weight", default=1.0, type=float)
+    parser.add_argument("--vqgan_dir",type=str,default="imagenet_16384", help="Path to directory with VQGAN checkpoint or one of [imagenet_1024, imagenet_16384, coco, faceshq, wikiart_1024, wikiart_16384, sflckr]",)
+    parser.add_argument("--clip_backbone", type=str, default="ViT-B/32", choices=["RN50", "RN101", "RN50x4", "ViT-B/32"])
+    parser.add_argument("--out_dir", default="./output/")
     parser.add_argument("--mask_path", type=str)
     parser.add_argument("--invert_mask", action="store_true")
     parser.add_argument("--force_square", action="store_true")
     parser.add_argument("--iterations", default=500, type=int)
     args = parser.parse_args()
+    # fmt: on
 
     out_name = (
         "-".join(
-            [Path(args.content).stem] + args.content_text.split() + [Path(args.style).stem]
-            if args.style is not None
-            else [] + args.style_text.split() + [Path(args.model_dir).stem]
+            [Path(args.content).stem]
+            + args.content_text.split()
+            + ([Path(args.style).stem] if args.style is not None else [])
+            + args.style_text.split()
+            + [Path(args.vqgan_dir).stem]
         ).lower()
         + ".jpg"
     )
 
-    style_image = Image.open(fetch(args.style)).convert("RGB")
-    sideX, sideY = size_to_fit(style_image.size, args.image_size, True)
-    style_image = style_image.resize((sideX, sideY), Image.LANCZOS)
-    style_image = TF.to_tensor(style_image).unsqueeze(0)
+    if args.style is not None:
+        styles = []
+        for stylim in args.style.split(","):
+            style_image = Image.open(fetch(args.style)).convert("RGB")
+            sideX, sideY = size_to_fit(style_image.size, args.image_size, True)
+            style_image = style_image.resize((sideX, sideY), Image.LANCZOS)
+            style_image = TF.to_tensor(style_image).unsqueeze(0)
+            styles.append(style_image)
+    else:
+        style_image = None
 
     if args.content == "random":
         init_image = torch.rand((1, 3, args.image_size, args.image_size))
@@ -613,14 +669,15 @@ if __name__ == "__main__":
 
     optimize(
         init=init_image,
-        style=style_image,
+        content=copy.deepcopy(init_image),
+        style=styles,
         mask=mask,
         content_text=args.content_text,
         style_text=args.style_text,
-        content_strength=args.content_strength,
-        style_strength=args.style_strength,
-        text_strength=args.text_strength,
-        model_dir=args.model_dir,
+        content_weight=args.content_weight,
+        style_weight=args.style_weight,
+        text_weight=args.text_weight,
+        model_dir=args.vqgan_dir,
         clip_backbone=args.clip_backbone,
         iterations=args.iterations,
         out_dir=args.out_dir,

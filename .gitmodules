@@ -10,9 +10,9 @@
 [submodule "sniklaus/liteflownet"]
 	path = sniklaus/liteflownet
 	url = https://github.com/sniklaus/pytorch-liteflownet.git
-[submodule "vqganclip/CLIP"]
-	path = vqganclip/CLIP
-	url = https://github.com/openai/CLIP
-[submodule "vqganclip/VQGAN"]
-	path = vqganclip/VQGAN
+[submodule "VQGAN"]
+	path = VQGAN
 	url = https://github.com/CompVis/taming-transformers
+[submodule "CLIP"]
+	path = CLIP
+	url = https://github.com/openai/CLIP

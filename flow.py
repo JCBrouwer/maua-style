@@ -1,16 +1,17 @@
-import math
 import sys
-import time
-from functools import partial
 
 import numpy as np
 import scipy
 import torch as th
 import torch.nn.functional as F
-from PIL import Image
 from skimage.transform import resize
 
-from utils import info
+# remove shape asserts from optical flow files
+for file in ["sniklaus/unflow/run.py", "sniklaus/pwc/run.py", "sniklaus/spynet/run.py", "sniklaus/liteflownet/run.py"]:
+    with open(file, "r") as f:
+        txt = f.read().replace("assert", "# assert")
+    with open(file, "w") as f:
+        f.write(txt)
 
 
 def im2tens(im, h, w):

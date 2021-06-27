@@ -10,6 +10,8 @@ import torch.nn.functional as F
 import torchvision.transforms as T
 from PIL import Image
 
+from utils import fetch
+
 Image.MAX_IMAGE_PIXELS = 1000000000  # Support gigapixel images
 
 
@@ -22,7 +24,7 @@ def preprocess(image_path):
         image -= image.min()
         image /= image.max()
     else:
-        image = Image.open(image_path).convert("RGB")
+        image = Image.open(fetch(image_path)).convert("RGB")
 
     rgb2bgr = T.Lambda(lambda x: x[th.LongTensor([2, 1, 0])])
     normalize = T.Normalize(mean=[103.939, 116.779, 123.68], std=[1, 1, 1])

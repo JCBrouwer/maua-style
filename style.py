@@ -16,6 +16,8 @@ import models
 import optim
 from utils import match_histogram, name
 
+th.backends.cudnn.benchmark = True
+
 
 def img_img(args):
     style_images_big = load.process_style_images(args)
@@ -211,6 +213,7 @@ def vid_img(args):
                     ),
                 ]
                 content_frames = [match_histogram(frame, style_images_big[0]) for frame in content_frames]
+                flow_direction = "forward" if pass_n % 2 == 0 else "backward"
                 # optim.set_content_targets(net, content_frames[1], args)
 
                 # Initialize the image
@@ -221,7 +224,7 @@ def vid_img(args):
                     elif args.init == "prev_warp":
                         if pastiche is None:
                             pastiche = content_frames[0]
-                        flo_file = "%s/flow/forward_%s_%s.flo" % (output_dir, name(prev_frame), name(this_frame))
+                        flo_file = f"{output_dir}/flow/{flow_direction}_{name(prev_frame)}_{name(this_frame)}.flo"
                         flow_map = load.flow_warp_map(flo_file, pastiche.shape[2:])
                         pastiche = F.grid_sample(pastiche, flow_map, padding_mode="border")
                     else:
@@ -268,13 +271,12 @@ def vid_img(args):
                         )
                         blend_image = load.preprocess(bfile)
 
-                    direction = "forward" if pass_n % 2 == 0 else "backward"
-                    flo_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.flo"
+                    flo_file = f"{output_dir}/flow/{flow_direction}_{name(prev_frame)}_{name(this_frame)}.flo"
                     flow_map = load.flow_warp_map(flo_file, pastiche.shape[2:])
 
                     warp_image = F.grid_sample(pastiche, flow_map, padding_mode="border")
 
-                    flow_weight_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.png"
+                    flow_weight_file = f"{output_dir}/flow/{flow_direction}_{name(prev_frame)}_{name(this_frame)}.png"
                     reliable_flow = load.reliable_flow_weighting(flow_weight_file)
                     reliable_flow = F.interpolate(
                         reliable_flow, size=pastiche.size()[2:], mode="bilinear", align_corners=False

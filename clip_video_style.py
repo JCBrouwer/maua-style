@@ -8,14 +8,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+import clip_vqgan
 import config
 import flow
 import load
-from utils import info, match_histogram, name
+from utils import match_histogram, name
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/vqganclip/")
-
-import vqganclip.multimodal_analogies as vqclip
+torch.backends.cudnn.benchmark = True
 
 args = config.get_args()
 
@@ -54,7 +53,7 @@ for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.nu
         )
 
     if size_n != 0:
-        vqclip.update_styles(style_images, args.content_text, args.style_text)
+        clip_vqgan.update_styles(style_images, args.content_text, args.style_text)
 
     for pass_n in range(args.passes_per_scale):
         pastiche = None
@@ -65,6 +64,7 @@ for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.nu
 
         if len(glob("%s/%s/%s_*.png" % (output_dir, current_size, pass_n + 2))) > 1:
             print(f"Skipping pass: {pass_n + 1}, already done.")
+            frames = list(reversed(frames))
             continue
 
         for n, (prev_frame, this_frame) in enumerate(
@@ -88,6 +88,7 @@ for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.nu
                 ),
             ]
             content_frames = [match_histogram(frame, style_images_big[0]) for frame in content_frames]
+            flow_direction = "forward" if pass_n % 2 == 0 else "backward"
 
             # Initialize the image
             # TODO make sure initialization correct even when continuing half way through video stylization
@@ -97,7 +98,7 @@ for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.nu
                 elif args.init == "prev_warp":
                     if pastiche is None:
                         pastiche = content_frames[0]
-                    flo_file = "%s/flow/forward_%s_%s.flo" % (output_dir, name(prev_frame), name(this_frame))
+                    flo_file = f"{output_dir}/flow/{flow_direction}_{name(prev_frame)}_{name(this_frame)}.flo"
                     flow_map = load.flow_warp_map(flo_file, pastiche.shape[2:])
                     pastiche = F.grid_sample(pastiche, flow_map, padding_mode="border")
                 else:
@@ -145,13 +146,12 @@ for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.nu
                     )
                     blend_image = load.preprocess(bfile)
 
-                direction = "forward" if pass_n % 2 == 0 else "backward"
-                flo_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.flo"
+                flo_file = f"{output_dir}/flow/{flow_direction}_{name(prev_frame)}_{name(this_frame)}.flo"
                 flow_map = load.flow_warp_map(flo_file, pastiche.shape[2:])
 
                 warp_image = F.grid_sample(pastiche, flow_map, padding_mode="border")
 
-                flow_weight_file = f"{output_dir}/flow/{direction}_{name(prev_frame)}_{name(this_frame)}.png"
+                flow_weight_file = f"{output_dir}/flow/{flow_direction}_{name(prev_frame)}_{name(this_frame)}.png"
                 reliable_flow = load.reliable_flow_weighting(flow_weight_file)
                 reliable_flow = F.interpolate(
                     reliable_flow, size=pastiche.size()[2:], mode="bilinear", align_corners=False
@@ -161,15 +161,16 @@ for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.nu
 
                 pastiche = (1 - args.temporal_blend) * blend_image + args.temporal_blend * pastiche
 
-            output_image = vqclip.optimize_cached(
+            output_image = clip_vqgan.optimize_cached(
                 init=pastiche,
+                content=content_frames[1],
                 style=style_images,
-                mask=mask,
+                mask=None,
                 content_text=args.content_text,
                 style_text=args.style_text,
-                content_strength=args.content_weight,
-                style_strength=args.style_weight,
-                text_strength=1,
+                content_weight=args.content_weight,
+                style_weight=args.style_weight,
+                text_weight=1,
                 model_dir=args.vqgan_dir,
                 clip_backbone=args.clip_backbone,
                 iterations=num_iters // args.passes_per_scale,

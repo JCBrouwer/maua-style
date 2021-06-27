@@ -1,6 +1,10 @@
-import numpy as np
-import torch as th
 import traceback
+import urllib.request
+
+import numpy as np
+import requests
+import torch as th
+from tqdm import tqdm
 
 
 def info(x, y=None, z=None):
@@ -48,6 +52,25 @@ def info(x, y=None, z=None):
 
 def name(s):
     return s.split("/")[-1].split(".")[0]
+
+
+class DownloadProgressBar(tqdm):
+    def update_to(self, b=1, bsize=1, tsize=None):
+        if tsize is not None:
+            self.total = tsize
+        self.update(b * bsize - self.n)
+
+
+def download(url, output_path):
+    with DownloadProgressBar(unit="B", unit_scale=True, miniters=1, desc=output_path) as t:
+        urllib.request.urlretrieve(url, filename=output_path, reporthook=t.update_to)
+    return output_path
+
+
+def fetch(path_or_url):
+    if not (path_or_url.startswith("http://") or path_or_url.startswith("https://")):
+        return open(path_or_url, "rb")
+    return requests.get(path_or_url, stream=True).raw
 
 
 def wrapping_slice(tensor, start, length, return_indices=False):
