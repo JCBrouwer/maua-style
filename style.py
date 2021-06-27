@@ -154,7 +154,10 @@ def vid_img(args):
 
     for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.num_iters)):
 
-        if len(glob.glob("%s/%s/*.png" % (output_dir, args.image_sizes[size_n + 1]))) > 1:
+        if (
+            len(glob.glob("%s/%s/*.png" % (output_dir, args.image_sizes[min(len(args.image_sizes) - 1, size_n + 1)])))
+            > 1
+        ):
             print("Skipping size: %s, already done." % current_size)
             prev_size = current_size
             continue
@@ -279,9 +282,7 @@ def vid_img(args):
 
                     optim.set_temporal_targets(net, warp_image, warp_weights=reliable_flow, args=args)
 
-                    blend_pastiche = (1 - args.temporal_blend) * blend_image + args.temporal_blend * pastiche
-                    warp_blend_pastiche = F.grid_sample(blend_pastiche, flow_map, padding_mode="border")
-                    pastiche = warp_blend_pastiche
+                    pastiche = (1 - args.temporal_blend) * blend_image + args.temporal_blend * pastiche
 
                 output_image = optim.optimize(
                     content_frames[1], style_images, pastiche, num_iters // args.passes_per_scale, args, net, losses

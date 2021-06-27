@@ -20,6 +20,7 @@
 
 import argparse
 import math
+import os
 import sys
 from copy import deepcopy
 from glob import glob
@@ -34,11 +35,10 @@ from torch.nn import functional as F
 from torchvision.transforms import functional as TF
 from tqdm import tqdm
 
-sys.path.append("./taming")
-
-from taming.models import cond_transformer, vqgan
+sys.path = [os.path.dirname(os.path.abspath(__file__)) + "/VQGAN/"] + sys.path
 
 from CLIP import clip
+from taming.models import cond_transformer, vqgan
 
 
 def sinc(x):
@@ -391,22 +391,67 @@ def initialize_targets(init, style, mask, content_text, style_text, model, perce
     toksX, toksY = w // res, h // res
     sideX, sideY = toksX * res, toksY * res
     init = resample(init, (sideX, sideY))
-    if mask.dim() > 1:
-        mask = resample(mask, (sideX, sideY))
 
     z = model.encode(init.to(dev1) * 2 - 1)[0].to(dev0)
 
     image_embed = perceptor.encode_image(preprocess(init).to(dev1))
     if style is not None:
-        style_embed = perceptor.encode_image(preprocess(style_image).to(dev1))
+        style_embed = [perceptor.encode_image(preprocess(style_image).to(dev1)) for style_image in style]
     else:
         style_embed = None
-    from_embed = perceptor.encode_text(clip.tokenize(content_text).to(dev1))
-    to_embed = perceptor.encode_text(clip.tokenize(style_text).to(dev1))
+    from_embed = perceptor.encode_text(clip.tokenize(content_text).to(dev1)) if not content_text is None else None
+    to_embed = perceptor.encode_text(clip.tokenize(style_text).to(dev1)) if not style_text is None else None
 
+    if mask is not None:
+        mask = resample(mask, (sideX, sideY))
+    else:
+        mask = torch.ones([], device=dev0)
     mask = mask.to(dev0)
 
     return [image_embed, from_embed, to_embed, style_embed], z, mask
+
+
+@torch.no_grad()
+def initialize_content(init, mask, model, perceptor, preprocess, res):
+    _, _, h, w = init.shape
+    toksX, toksY = w // res, h // res
+    sideX, sideY = toksX * res, toksY * res
+    init = resample(init, (sideY, sideX))
+
+    z = model.encode(init.to(dev1) * 2 - 1)[0].to(dev0)
+
+    image_embed = perceptor.encode_image(preprocess(init).to(dev1))
+
+    if mask is not None:
+        mask = resample(mask, (sideX, sideY))
+    else:
+        mask = torch.ones([], device=dev0)
+    mask = mask.to(dev0)
+
+    return image_embed, z, mask
+
+
+@torch.no_grad()
+def initialize_styles(style, content_text, style_text, perceptor, preprocess):
+    if style is not None:
+        style_embed = [perceptor.encode_image(preprocess(style_image).to(dev1)) for style_image in style]
+    else:
+        style_embed = None
+    from_embed = perceptor.encode_text(clip.tokenize(content_text).to(dev1)) if not content_text is None else None
+    to_embed = perceptor.encode_text(clip.tokenize(style_text).to(dev1)) if not style_text is None else None
+    return [from_embed, to_embed, style_embed]
+
+
+@torch.no_grad()
+def update_styles(style, content_text, style_text):
+    global target_embeds, perceptor, preprocess
+    if style is not None:
+        style_embed = [perceptor.encode_image(preprocess(style_image).to(dev1)) for style_image in style]
+    else:
+        style_embed = None
+    from_embed = perceptor.encode_text(clip.tokenize(content_text).to(dev1)) if not content_text is None else None
+    to_embed = perceptor.encode_text(clip.tokenize(style_text).to(dev1)) if not style_text is None else None
+    target_embeds = [from_embed, to_embed, style_embed]
 
 
 def synth(model, z):
@@ -422,9 +467,12 @@ def ascend_txt(model, perceptor, z, mask, preprocess, embeds, content_strength, 
     out_embeds = perceptor.encode_image(preprocess(out).to(dev1))
     return [
         spherical_dist(out_embeds, image_embeds).mean() * content_strength,
-        spherical_dist(out_embeds, style_embed).mean() * style_strength if style_embed is not None else 0,
-        spherical_dist(out_embeds, from_embed).mean() * -text_strength,
-        spherical_dist(out_embeds, to_embed).mean() * text_strength,
+        *[
+            (spherical_dist(out_embeds, style).mean() * style_strength if style_embed is not None else torch.zeros([]))
+            for style in style_embed
+        ],
+        spherical_dist(out_embeds, from_embed).mean() * -text_strength if from_embed is not None else torch.zeros([]),
+        spherical_dist(out_embeds, to_embed).mean() * text_strength if to_embed is not None else torch.zeros([]),
     ]
 
 
@@ -462,7 +510,49 @@ def optimize(
 
             if i % 50 == 0:
                 tqdm.write(f"i: {i}, loss: {sum(losses).item():g} [{', '.join(f'{l.item():g}' for l in losses)}")
-                TF.to_pil_image(synth(model, z)[0].cpu()).save(out_dir + "/" + out_name)
+                output_image = synth(model, z)[0].cpu()
+                TF.to_pil_image(output_image).save(out_dir + "/" + out_name)
+
+    return output_image.unsqueeze(0)
+
+
+model, perceptor, preprocess, res, z_min, z_max, target_embeds = None, None, None, None, None, None, None
+
+
+def optimize_cached(
+    init,
+    style,
+    mask,
+    content_text,
+    style_text,
+    content_strength,
+    style_strength,
+    text_strength,
+    model_dir,
+    clip_backbone,
+    iterations,
+):
+    global model, perceptor, preprocess, res, z_min, z_max, target_embeds
+    if model is None:
+        model, perceptor, preprocess, res, z_min, z_max = load_models(model_dir, clip_backbone)
+        target_embeds = initialize_styles(style, content_text, style_text, perceptor, preprocess)
+    image_embed, z, mask = initialize_content(init, mask, model, perceptor, preprocess, res)
+    embeds = [image_embed] + target_embeds
+
+    z.requires_grad_()
+    opt = optim.Adam([z], lr=0.05)
+
+    for i in tqdm(range(iterations)):
+        opt.zero_grad()
+        losses = ascend_txt(
+            model, perceptor, z, mask, preprocess, embeds, content_strength, style_strength, text_strength
+        )
+        sum(losses).backward()
+        opt.step()
+
+    with torch.no_grad():
+        z.copy_(z.maximum(z_min).minimum(z_max))
+        return synth(model, z)[0].cpu().unsqueeze(0)
 
 
 if __name__ == "__main__":
@@ -519,7 +609,7 @@ if __name__ == "__main__":
         if args.invert_mask:
             mask = 1 - mask
     else:
-        mask = torch.ones([])
+        mask = None
 
     optimize(
         init=init_image,

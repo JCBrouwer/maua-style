@@ -57,7 +57,7 @@ def get_args():
     # gpu
     parser.add_argument("-gpu", help="Zero-indexed ID of the GPU to use; for CPU mode set -gpu = c", default=0)
     parser.add_argument(
-        "-backend", choices=["nn", "cudnn", "mkl", "mkldnn", "openmp", "mkl,cudnn", "cudnn,mkl"], default="cudnn"
+        "-backend", choices=["nn", "cudnn", "mkl", "mkldnn", "openmp", " mkl,cudnn ", " cudnn,mkl "], default="cudnn"
     )
     parser.add_argument("-multidevice_strategy", default="5")
     parser.add_argument("-no_cudnn_autotune", action="store_true")
@@ -76,6 +76,13 @@ def get_args():
     parser.add_argument("-gram_frame_window", type=str, default="18,9,7")
     parser.add_argument("-avg_frame_window", type=int, default=18)
     parser.add_argument("-shift_factor", type=float, default=0)
+
+    # clip video settings
+    parser.add_argument("-content_text", type=str, default=None)
+    parser.add_argument("-style_text", type=str, default=None)
+    parser.add_argument("-text_strength", type=float, default=1)
+    parser.add_argument("-vqgan_dir", type=str, default="/home/hans/modelzoo/vqgan/imagenet/")
+    parser.add_argument("-clip_backbone", type=str, default="ViT-B/32")
 
     # logging
     parser.add_argument("-verbose", action="store_true")
