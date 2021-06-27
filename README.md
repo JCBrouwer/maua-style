@@ -119,7 +119,7 @@ python clip_vqgan.py --content random --style_text "description of desired style
                      --style optional.png
 ```
 
-or video transfer (this can take a loooong time), there also aren't great default settings for this yet, although the following is decent:
+or video transfer (this can take a loooong time). There aren't great default settings for this yet, although the following is decent:
 
 ```bash
 python clip_video_style.py --content some.mp4 --content_text "description" \
