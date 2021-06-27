@@ -85,11 +85,15 @@ python style.py --style https://some.image/url.jpeg --image_sizes 256,512,1024,2
 
 ## Video style transfer
 
+Default settings:
+
 ```bash
 python style.py --content /my/video/folder/cool.mp4 --style /my/image/folder/epic.jpg \
                 --load_args config/args-vid.json --scaling_args config/scaling-vid.json \
                 --ffmpeg_args config/ffmpeg-libx264.json
 ```
+
+Changing some options on the command line:
 
 ```bash
 python style.py --content /my/video/folder/cool.mp4 --style /my/image/folder/epic.jpg \
@@ -101,15 +105,27 @@ python style.py --content /my/video/folder/cool.mp4 --style /my/image/folder/epi
 
 ## CLIP + VQGAN style transfer
 
+Allows for text only or multi-modal transfer:
+
 ```bash
 python clip_vqgan.py --content some.png --content_text "description of content image" \
                      --style_text "description of desired style" --style optional.png
 ```
 
+or synthesis:
+
+```bash
+python clip_vqgan.py --content random --style_text "description of desired style" \
+                     --style optional.png
+```
+
+or video transfer (this can take a loooong time), there also aren't great default settings for this yet, although the following is decent:
+
 ```bash
 python clip_video_style.py --load_args config/args-vid.json --scaling_args config/scaling-vid.json \
                            --ffmpeg_args config/ffmpeg-libx264.json --content some.mp4 --content_text "description" \
-                           --style_text "description" --style optional.jpg 
+                           --style_text "description" --style optional.jpg --content_weight 1 --style_weight 2.5 \
+                           --text_weight 5 --image_sizes 400 --num_iters 800 --num_passes 4 --init content
 ```
 
 ## Videos as style
