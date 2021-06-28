@@ -79,7 +79,7 @@ python style.py --content /path/to/img.png --style https://some.image/url.jpeg \
 or, for example:
 
 ```bash
-python style.py --style https://some.image/url.jpeg --image_sizes 256,512,1024,2048 \
+python style.py --style https://some.image/url.jpeg,/a/local/image/too.png --image_sizes 256,512,1024,2048 \
                 --num_iters 1000,500,250,100 --content_weight 0 --use_covariance --init random
 ```
 
