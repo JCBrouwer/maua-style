@@ -47,7 +47,7 @@
   "verbose": false,
   "print_iter": 0,
   "save_iter": 0,
-  "save_args": true,
+  "save_args": false,
   "load_args": null,
   "uniq": false
 }

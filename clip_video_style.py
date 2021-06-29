@@ -34,7 +34,9 @@ style_images_big = load.process_style_images(args)
 
 for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.num_iters)):
 
-    if len(glob("%s/%s/*.png" % (output_dir, args.image_sizes[min(len(args.image_sizes) - 1, size_n + 1)]))) > 1:
+    if len(glob("%s/%s/*.png" % (output_dir, args.image_sizes[min(len(args.image_sizes) - 1, size_n + 1)]))) == len(
+        frames
+    ):
         print("Skipping size: %s, already done." % current_size)
         prev_size = current_size
         continue
@@ -62,7 +64,7 @@ for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.nu
             start_idx = randrange(0, len(frames) - 1)
             frames = frames[start_idx:] + frames[:start_idx]  # rotate frames
 
-        if len(glob("%s/%s/%s_*.png" % (output_dir, current_size, pass_n + 2))) > 1:
+        if len(glob("%s/%s/%s_*.png" % (output_dir, current_size, pass_n + 2))) == len(frames):
             print(f"Skipping pass: {pass_n + 1}, already done.")
             frames = list(reversed(frames))
             continue
@@ -87,7 +89,9 @@ for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.nu
                     load.preprocess(this_frame), scale_factor=content_scale, mode="bilinear", align_corners=False
                 ),
             ]
-            content_frames = [match_histogram(frame, style_images_big[0]) for frame in content_frames]
+            content_frames = [
+                match_histogram(frame, style_images_big[0], mode=args.match_histograms) for frame in content_frames
+            ]
             flow_direction = "forward" if pass_n % 2 == 0 else "backward"
 
             # Initialize the image
@@ -176,7 +180,7 @@ for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.nu
                 iterations=num_iters // args.passes_per_scale,
             )
 
-            pastiche = match_histogram(output_image.detach().cpu(), style_images_big[0])
+            pastiche = match_histogram(output_image.detach().cpu(), style_images_big[0], mode=args.match_histograms)
 
             disp = load.deprocess(pastiche.clone())
             if args.original_colors == 1:

@@ -103,6 +103,8 @@ python style.py --content /my/video/folder/cool.mp4 --style /my/image/folder/epi
                 --temporal_blend 0.25 --no_check_occlusion --init content
 ```
 
+Video style transfer caches images to disk, so if it crashes or you need to change settings you can just quit and run the command again. The program will skip any frames that have already been rendered.
+
 ## CLIP + VQGAN style transfer
 
 Allows for text only or multi-modal transfer:

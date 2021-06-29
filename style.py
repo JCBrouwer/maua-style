@@ -21,7 +21,7 @@ th.backends.cudnn.benchmark = True
 
 def img_img(args):
     style_images_big = load.process_style_images(args)
-    content_image_big = match_histogram(load.preprocess(args.content), style_images_big)
+    content_image_big = match_histogram(load.preprocess(args.content), style_images_big, mode=args.match_histograms)
     content_size = np.array(content_image_big.size()[-2:])
     if args.init != "content" and args.init != "random":
         pastiche = load.preprocess(args.init)
@@ -64,11 +64,11 @@ def img_img(args):
             pastiche = F.interpolate(
                 pastiche.clone(), tuple(np.int64(content_image.shape[2:])), mode="bilinear", align_corners=False
             )
-        pastiche = match_histogram(pastiche, style_images_big)
+        pastiche = match_histogram(pastiche, style_images_big, mode=args.match_histograms)
 
         output_image = optim.optimize(content_image, style_images, pastiche, num_iters, args)
 
-        pastiche = match_histogram(output_image.detach().cpu(), style_images_big)
+        pastiche = match_histogram(output_image.detach().cpu(), style_images_big, mode=args.match_histograms)
 
         load.save_tensor_to_file(pastiche.detach().cpu(), args, size=current_size)
 
@@ -79,8 +79,7 @@ def img_vid(args):
 
     # load content image
     content_image_big = load.preprocess(args.content)
-    if args.match_histograms != False:
-        content_image_big = match_histogram(content_image_big, style_videos_big, mode=args.match_histograms)
+    content_image_big = match_histogram(content_image_big, style_videos_big, mode=args.match_histograms)
 
     # determine frame settings
     if args.num_frames == -1:
@@ -102,8 +101,7 @@ def img_vid(args):
     else:
         pastiche = load.preprocess_video(args.init, args.fps)
         pastiche = pastiche.repeat([video_length, 1, 1, 1])
-    if args.match_histograms != False:
-        pastiche = match_histogram(pastiche, style_videos_big, mode=args.match_histograms)
+    pastiche = match_histogram(pastiche, style_videos_big, mode=args.match_histograms)
 
     for i, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.num_iters)):
         if os.path.exists(f"{args.output}_{current_size}.mp4"):
@@ -138,8 +136,7 @@ def img_vid(args):
 
         if args.temporal_blend > 0:
             pastiche = th.from_numpy(ndi.gaussian_filter(pastiche, [args.temporal_blend, 0, 0, 0], mode="wrap"))
-        if args.match_histograms != False:
-            pastiche = match_histogram(pastiche, style_videos_big, mode=args.match_histograms)
+        pastiche = match_histogram(pastiche, style_videos_big, mode=args.match_histograms)
         load.save_tensor_to_file(pastiche, args, filename=f"{args.output}_{current_size}")
 
     load.save_tensor_to_file(match_histogram(pastiche, style_videos_big, mode=args.match_histograms), args)
@@ -156,10 +153,9 @@ def vid_img(args):
 
     for size_n, (current_size, num_iters) in enumerate(zip(args.image_sizes, args.num_iters)):
 
-        if (
-            len(glob.glob("%s/%s/*.png" % (output_dir, args.image_sizes[min(len(args.image_sizes) - 1, size_n + 1)])))
-            > 1
-        ):
+        if len(
+            glob.glob("%s/%s/*.png" % (output_dir, args.image_sizes[min(len(args.image_sizes) - 1, size_n + 1)]))
+        ) == len(frames):
             print("Skipping size: %s, already done." % current_size)
             prev_size = current_size
             continue
@@ -188,8 +184,9 @@ def vid_img(args):
                 start_idx = random.randrange(0, len(frames) - 1)
                 frames = frames[start_idx:] + frames[:start_idx]  # rotate frames
 
-            if len(glob.glob("%s/%s/%s_*.png" % (output_dir, current_size, pass_n + 2))) > 1:
+            if len(glob.glob("%s/%s/%s_*.png" % (output_dir, current_size, pass_n + 2))) == len(frames):
                 print(f"Skipping pass: {pass_n + 1}, already done.")
+                frames = list(reversed(frames))
                 continue
 
             for n, (prev_frame, this_frame) in enumerate(
@@ -212,7 +209,9 @@ def vid_img(args):
                         load.preprocess(this_frame), scale_factor=content_scale, mode="bilinear", align_corners=False
                     ),
                 ]
-                content_frames = [match_histogram(frame, style_images_big[0]) for frame in content_frames]
+                content_frames = [
+                    match_histogram(frame, style_images_big[0], mode=args.match_histograms) for frame in content_frames
+                ]
                 flow_direction = "forward" if pass_n % 2 == 0 else "backward"
                 # optim.set_content_targets(net, content_frames[1], args)
 
@@ -290,7 +289,7 @@ def vid_img(args):
                     content_frames[1], style_images, pastiche, num_iters // args.passes_per_scale, args, net, losses
                 )
 
-                pastiche = match_histogram(output_image.detach().cpu(), style_images_big[0])
+                pastiche = match_histogram(output_image.detach().cpu(), style_images_big[0], mode=args.match_histograms)
 
                 disp = load.deprocess(pastiche.clone())
                 if args.original_colors == 1:
