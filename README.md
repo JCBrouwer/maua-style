@@ -29,8 +29,8 @@ conda install -c conda-forge cudatoolkit-dev cudatoolkit cudnn
 Whatever way you've set up your CUDA environment, once it's working, run the following to install this repository and its requirements:
 ```bash
 git clone --recursive https://github.com/JCBrouwer/maua-style.git
-git submodule update
 cd maua-style
+git submodule update
 pip install -r requirements.txt
 pip install cupy-cudaXXX
 ```
