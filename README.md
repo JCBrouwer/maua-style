@@ -30,6 +30,7 @@ Whatever way you've set up your CUDA environment, once it's working, run the fol
 ```bash
 git clone --recursive https://github.com/JCBrouwer/maua-style.git
 cd maua-style
+git submodule update
 pip install -r requirements.txt
 pip install cupy-cudaXXX
 ```
